@@ -39,7 +39,7 @@ usage() {
   --panel-domain     面板域名，例如 panel.example.com
   --hy2-domain       Hysteria2 域名，例如 hy.example.com
   --vless-domain     VLESS Reality 地址域名，例如 vless.example.com
-  --email            Let's Encrypt 证书邮箱
+  --email            Let’s Encrypt 证书邮箱
   --reality-sni      Reality 分流 SNI，默认 www.cloudflare.com
   --hy2-port         Hysteria2 UDP 监听端口，默认 443
   --mode             部署模式：docker、native-nginx、internal，默认 docker
@@ -192,7 +192,7 @@ normalize_and_validate_inputs() {
   validate_domain "VLESS 域名" "$VLESS_DOMAIN"
   validate_domain "Reality SNI" "$REALITY_SNI"
   if [[ ! "$LE_EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then
-    echo "Let's Encrypt 邮箱格式不正确: $LE_EMAIL" >&2
+    echo "Let’s Encrypt 邮箱格式不正确: $LE_EMAIL" >&2
     exit 1
   fi
   if [[ ! "$HY2_PORT" =~ ^[0-9]+$ ]] || (( HY2_PORT < 1 || HY2_PORT > 65535 )); then
@@ -684,7 +684,7 @@ link_hy2_cert_to_panel_cert() {
 }
 
 generate_self_signed_cert() {
-  local reason="${1:-Let's Encrypt 证书申请失败}"
+  local reason="${1:-Let’s Encrypt 证书申请失败}"
   local cert_dir="data/letsencrypt/live/$PANEL_DOMAIN"
   local tmp_conf
   CERT_MODE="self-signed"
@@ -727,7 +727,7 @@ EOF
 影响:
 - 面板可以启动，但浏览器会提示证书不受信任。
 - Hysteria2 客户端可能需要开启 allowInsecure / insecure 才能测试。
-- 生产环境建议尽快补签 Let's Encrypt 正式证书。
+- 生产环境建议尽快补签 Let’s Encrypt 正式证书。
 
 DNS/端口修复后执行:
 sudo bash $APP_DIR/scripts/install-fresh-vps.sh --renew-cert \\
@@ -845,9 +845,9 @@ issue_cert() {
 
   if [[ "$rc" != "0" ]]; then
     echo
-    echo "Let's Encrypt 正式证书申请失败，错误码: $rc"
+    echo "Let’s Encrypt 正式证书申请失败，错误码: $rc"
     echo "脚本将生成自签证书作为兜底，保证面板和服务可以先启动。"
-    generate_self_signed_cert "Let's Encrypt 申请失败，错误码: $rc。常见原因是 DNS 未生效、Cloudflare 未设为仅 DNS、TCP 80 不通或端口被占用。"
+    generate_self_signed_cert "Let’s Encrypt 申请失败，错误码: $rc。常见原因是 DNS 未生效、Cloudflare 未设为仅 DNS、TCP 80 不通或端口被占用。"
     reload_entry_after_cert
     return
   fi
@@ -907,11 +907,7 @@ final_start_and_check() {
   fi
 
   local token
-  token="$(python3 - <<'PY'
-import json
-print(json.load(open("data/panel/admin_profile.json"))["user"]["sub_token"])
-PY
-)"
+  token="$(python3 -c 'import json; print(json.load(open("data/panel/admin_profile.json"))["user"]["sub_token"])')"
 
   curl -k -fsS "https://$PANEL_DOMAIN/login" >/dev/null
   curl -k -fsS "https://$PANEL_DOMAIN/assets/app.js" >/dev/null
@@ -992,7 +988,7 @@ EOF
 ============================================================
 证书兜底提示
 ============================================================
-当前使用的是自签证书，不是 Let's Encrypt 正式证书。
+当前使用的是自签证书，不是 Let’s Encrypt 正式证书。
 原因: ${CERT_FALLBACK_REASON:-证书申请失败或预启动占位证书仍在使用。}
 
 你现在可以先访问面板，但浏览器会提示证书不受信任:
@@ -1041,7 +1037,7 @@ validate_domain "根域名" "$ROOT_DOMAIN"
 ask PANEL_DOMAIN "请输入面板域名" "panel.$ROOT_DOMAIN"
 ask HY2_DOMAIN "请输入 Hysteria2 域名" "hy.$ROOT_DOMAIN"
 ask VLESS_DOMAIN "请输入 VLESS Reality 地址域名" "vless.$ROOT_DOMAIN"
-ask LE_EMAIL "请输入 Let's Encrypt 邮箱" "admin@$ROOT_DOMAIN"
+ask LE_EMAIL "请输入 Let’s Encrypt 邮箱" "admin@$ROOT_DOMAIN"
 ask REALITY_SNI "请输入 Reality 分流 SNI" "www.cloudflare.com"
 ask HY2_PORT "请输入 Hysteria2 UDP 端口" "443"
 normalize_and_validate_inputs
