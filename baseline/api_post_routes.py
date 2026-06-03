@@ -1,0 +1,42 @@
+import urllib.parse
+
+import operations_service as ops
+from api_admin_routes import handle_admin_post
+from api_common import ok, require_admin
+from api_node_routes import handle_node_post
+from api_public_routes import handle_public_post
+from api_self_routes import handle_self_post
+from api_user_routes import handle_user_post
+from http_utils import api_error
+
+
+def handle_post(path, data, session):
+    clean = urllib.parse.urlparse(path).path
+
+    public_result = handle_public_post(clean, data)
+    if public_result is not None:
+        return public_result
+
+    if not session:
+        return api_error("not authenticated", 401)
+
+    self_result = handle_self_post(clean, data, session)
+    if self_result is not None:
+        return self_result
+
+    if clean == "/api/settings":
+        if (err := require_admin(session)):
+            return err
+        result = ops.update_settings(data)
+        result["clear_session"] = True
+        return ok(**result)
+
+    if (err := require_admin(session)):
+        return err
+
+    for handler in (handle_admin_post, handle_user_post, handle_node_post):
+        result = handler(clean, data, session)
+        if result is not None:
+            return result
+
+    return api_error("not found", 404)

@@ -1,0 +1,130 @@
+services:
+  panel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        XRAY_IMAGE: ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:latest}
+    image: ${PANEL_IMAGE:-xray-proxy-panel:local}
+    container_name: xray-proxy-panel
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - xray
+      - hysteria2
+    environment:
+      TZ: ${TZ:-Asia/Hong_Kong}
+      PANEL_HOST: 127.0.0.1
+      PANEL_PORT: "9100"
+      PANEL_DOMAIN: ${PANEL_DOMAIN:-panel.example.com}
+      HY2_DOMAIN: ${HY2_DOMAIN:-hy2.example.com}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://${PANEL_DOMAIN:-panel.example.com}}
+      DEFAULT_VLESS_ADDRESS: ${DEFAULT_VLESS_ADDRESS:-vless.example.com}
+      DEFAULT_VLESS_NAME: ${DEFAULT_VLESS_NAME:-VLESS_Reality_vless.example.com}
+      DEFAULT_HY2_NAME: ${DEFAULT_HY2_NAME:-HY2_hy2.example.com}
+      HY2_MASQUERADE_URL: ${HY2_MASQUERADE_URL:-https://example.com}
+      QR_CMD: ${QR_CMD:-qrencode}
+      PANEL_APP_DIR: /app
+      PANEL_DIR: /data/panel
+      LOGIN_FILE: /data/panel/xray-proxy-panel-login.txt
+      USER_LOGIN_FILE: /data/panel/xray-proxy-panel-user-login.txt
+      AIRPORT_LOGIN_LOG: /data/panel/xray-proxy-panel-airport-users.txt
+      XRAY_BIN: /usr/local/bin/xray
+      XRAY_API_SERVER: 127.0.0.1:10085
+      XRAY_CONFIG: /data/xray/config.json
+      XRAY_BACKUP_DIR: /data/backups/xray
+      XRAY_RESTART_CMD: docker restart xray
+      XRAY_STATUS_CMD: docker inspect -f '{{.State.Running}}' xray
+      HY2_DIR: /data/hysteria2
+      HY2_ENV_FILE: /data/hysteria2/.env
+      HY2_CONFIG_FILE: /data/hysteria2/server.yaml
+      HY2_BACKUP_DIR: /data/backups/hysteria2
+      HY2_RESTART_CMD: docker restart hysteria2
+      HY2_STATUS_CMD: docker inspect -f '{{.State.Running}}' hysteria2
+      HY2_LOGS_CMD: docker logs --tail=80 hysteria2
+      QUOTA_COLLECT_CMD: python3 /app/quota_collect.py
+      ENFORCE_USERS_CMD: python3 /app/enforce_users.py
+    volumes:
+      - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  xray:
+    build:
+      context: .
+      dockerfile: docker/xray/Dockerfile
+      args:
+        XRAY_IMAGE: ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:latest}
+    container_name: xray
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TZ: ${TZ:-Asia/Hong_Kong}
+      XRAY_LOCATION_ASSET: /usr/local/share/xray
+    volumes:
+      - ./data/xray:/etc/xray
+      - ./data/xray/log:/var/log/xray
+    command: ["run", "-config", "/etc/xray/config.json"]
+
+  hysteria2:
+    image: ${HYSTERIA_IMAGE:-tobyxdd/hysteria:latest}
+    container_name: hysteria2
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TZ: ${TZ:-Asia/Hong_Kong}
+    volumes:
+      - ./data/hysteria2:/etc/hysteria
+      - ./data/letsencrypt:/etc/letsencrypt:ro
+    command: ["server", "-c", "/etc/hysteria/server.yaml"]
+
+  nginx:
+    image: ${NGINX_IMAGE:-nginx:1.27-alpine}
+    container_name: xray-proxy-nginx
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - panel
+      - xray
+    environment:
+      TZ: ${TZ:-Asia/Hong_Kong}
+      PANEL_DOMAIN: ${PANEL_DOMAIN:-panel.example.com}
+      HY2_DOMAIN: ${HY2_DOMAIN:-hy2.example.com}
+      REALITY_SNI: ${REALITY_SNI:-www.cloudflare.com}
+      XRAY_REALITY_PORT: ${XRAY_REALITY_PORT:-8443}
+    volumes:
+      - ./docker/nginx/templates/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+      - ./data/letsencrypt:/etc/letsencrypt:ro
+      - ./data/acme:/var/www/certbot
+      - ./data/nginx/log:/var/log/nginx
+    command: >
+      /bin/sh -c "envsubst '$$PANEL_DOMAIN $$HY2_DOMAIN $$REALITY_SNI $$XRAY_REALITY_PORT'
+      < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf
+      && nginx -g 'daemon off;'"
+
+  certbot:
+    image: ${CERTBOT_IMAGE:-certbot/certbot:latest}
+    profiles: ["certbot"]
+    volumes:
+      - ./data/letsencrypt:/etc/letsencrypt
+      - ./data/acme:/var/www/certbot
+    command:
+      - certonly
+      - --webroot
+      - -w
+      - /var/www/certbot
+      - -d
+      - ${PANEL_DOMAIN:-panel.example.com}
+      - -d
+      - ${HY2_DOMAIN:-hy2.example.com}
+      - --email
+      - ${LE_EMAIL:-admin@example.com}
+      - --agree-tos
+      - --no-eff-email
+
+  certbot-renew:
+    image: ${CERTBOT_IMAGE:-certbot/certbot:latest}
+    profiles: ["certbot"]
+    volumes:
+      - ./data/letsencrypt:/etc/letsencrypt
+      - ./data/acme:/var/www/certbot
+    command: ["renew", "--webroot", "-w", "/var/www/certbot"]

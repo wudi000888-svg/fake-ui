@@ -1,0 +1,7 @@
+[Unit]
+Description=Xray proxy panel data backup
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/xray-proxy-panel
+ExecStart=/usr/bin/python3 /opt/xray-proxy-panel/panel_backup.py
