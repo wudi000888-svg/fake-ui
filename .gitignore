@@ -1,6 +1,7 @@
 data/
 .demo-runtime/
 .superpowers/
+.worktrees/
 .pytest_cache/
 *.tgz
 *.tar.gz
