@@ -1,5 +1,6 @@
 import urllib.parse
 
+import api_v2_routes
 import audit_log
 import backup_manager
 import hy2_panel
@@ -17,6 +18,10 @@ from http_utils import api_error
 
 def handle_get(path, session):
     clean = urllib.parse.urlparse(path).path
+
+    v2_result = api_v2_routes.handle_get(clean, session)
+    if v2_result is not None:
+        return v2_result
 
     if clean == "/api/session":
         return ok(session=ops.public_session(session))

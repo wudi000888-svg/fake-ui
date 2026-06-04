@@ -1,5 +1,6 @@
 import urllib.parse
 
+import api_v2_routes
 import operations_service as ops
 from api_admin_routes import handle_admin_post
 from api_common import ok, require_admin
@@ -20,6 +21,10 @@ def handle_post(path, data, session):
 
     if not session:
         return api_error("not authenticated", 401)
+
+    v2_result = api_v2_routes.handle_post(clean, data, session)
+    if v2_result is not None:
+        return v2_result
 
     self_result = handle_self_post(clean, data, session)
     if self_result is not None:
