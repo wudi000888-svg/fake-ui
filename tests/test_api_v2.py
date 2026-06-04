@@ -111,12 +111,16 @@ def test_api_v2_cache_status_and_clear_are_admin_only(v2_modules):
 def test_admin_dashboard_survives_subscription_link_generation_failure(v2_modules, monkeypatch):
     api = v2_modules["api"]
     links = importlib.import_module("links")
+    xray_panel = importlib.import_module("xray_panel")
+    hy2_panel = importlib.import_module("hy2_panel")
 
     monkeypatch.setattr(
         links,
         "build_vless_links_for_airport_user",
         lambda username, user: (_ for _ in ()).throw(FileNotFoundError("xray")),
     )
+    monkeypatch.setattr(xray_panel, "current_status", lambda: {"xray": "test", "proxy": ""})
+    monkeypatch.setattr(hy2_panel, "hy2_status", lambda: {"running": "test"})
 
     status, payload = api.handle_get("/api/dashboard", {"u": "admin", "r": "admin", "role": "admin"})
 
