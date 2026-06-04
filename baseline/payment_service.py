@@ -157,8 +157,20 @@ def _is_evm_log_range_error(error):
 
 def _scan_evm_logs(method, from_block, to_block):
     urls = _rpc_urls(method)
+
+    def fetch_range(start, end):
+        try:
+            return payment_verifier.rpc_call(urls, "eth_getLogs", [_evm_log_query(method, start, end)])
+        except Exception as exc:
+            if not _is_evm_log_range_error(exc) or start >= end:
+                raise
+            middle = start + ((end - start) // 2)
+            left = fetch_range(start, middle)
+            right = fetch_range(middle + 1, end)
+            return list(left or []) + list(right or [])
+
     try:
-        return payment_verifier.rpc_call(urls, "eth_getLogs", [_evm_log_query(method, from_block, to_block)])
+        return fetch_range(from_block, to_block)
     except Exception as exc:
         if not _is_evm_log_range_error(exc) or to_block - from_block <= EVM_SCAN_MAX_BLOCK_RANGE:
             raise
@@ -166,7 +178,7 @@ def _scan_evm_logs(method, from_block, to_block):
         start = from_block
         while start <= to_block:
             end = min(to_block, start + EVM_SCAN_MAX_BLOCK_RANGE)
-            chunk = payment_verifier.rpc_call(urls, "eth_getLogs", [_evm_log_query(method, start, end)])
+            chunk = fetch_range(start, end)
             logs.extend(chunk or [])
             start = end + 1
         return logs
