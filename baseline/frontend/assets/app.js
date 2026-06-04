@@ -399,11 +399,12 @@ function nodeLocation(node) {
 
 function orderPaymentActions(order, adminActions = false) {
   const payment = paymentForOrder(order);
+  if (order.status === "cancelled") return '<span class="muted">订单已取消</span>';
+  if (order.status !== "pending") return '<span class="muted">无需付款</span>';
   if (adminActions) {
     return `${paymentMini(payment)}${payment ? `<button type="button" class="secondary tiny" data-action="payment-refresh" data-payment="${esc(payment.id)}">刷新</button>` : ""}`;
   }
   if (payment) return `${paymentMini(payment)}<button type="button" class="secondary tiny" data-action="payment-refresh" data-payment="${esc(payment.id)}">刷新</button>`;
-  if (order.status !== "pending") return '<span class="muted">无需付款</span>';
   const options = paymentMethodOptions();
   if (!options) return '<span class="muted">暂无链上收款方式</span>';
   return `<div class="payment-start"><select data-payment-method-for="${esc(order.id)}">${options}</select><button type="button" class="good tiny" data-action="payment-start" data-order="${esc(order.id)}">付款</button></div>`;

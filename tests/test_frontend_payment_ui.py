@@ -24,6 +24,15 @@ def test_frontend_exposes_crypto_payment_user_flow():
     assert "需要补 TXID" in source
 
 
+def test_frontend_cancelled_orders_do_not_show_active_payment_actions():
+    source = APP_JS.read_text(encoding="utf-8")
+
+    cancelled_guard = source.index('order.status === "cancelled"')
+    payment_render = source.index("if (payment) return")
+    assert cancelled_guard < payment_render
+    assert "订单已取消" in source
+
+
 def test_frontend_exposes_crypto_payment_admin_settings():
     source = APP_JS.read_text(encoding="utf-8")
 
