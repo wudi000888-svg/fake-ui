@@ -220,6 +220,83 @@ def _scan_evm_erc20_payment(payment, method):
     }
 
 
+def _btc_tx_time(tx):
+    status = dict((tx or {}).get("status") or {})
+    block_time = int(status.get("block_time") or 0)
+    if block_time > 0:
+        return datetime.fromtimestamp(block_time, tz=timezone.utc)
+    return None
+
+
+def _scan_btc_payment(payment, method):
+    required_amount = payment.get("crypto_amount")
+    confirmations_required = method.get("confirmations_required", 1)
+    last_error = None
+    for base_url in _btc_api_urls(method):
+        try:
+            txs = payment_verifier.http_json(f"{base_url}/address/{method.get('address')}/txs")
+            tip_height = payment_verifier.http_json(f"{base_url}/blocks/tip/height")
+            break
+        except Exception as exc:
+            last_error = exc
+    else:
+        raise RuntimeError(last_error or "btc api error")
+
+    floor = _created_at_floor(payment)
+    candidates = []
+    insufficient = []
+    for tx in txs or []:
+        tx = dict(tx or {})
+        txid = str(tx.get("txid") or "").strip()
+        if not txid or payments_store.txid_used(txid, exclude_payment_id=payment.get("id")):
+            continue
+        tx_time = _btc_tx_time(tx)
+        if floor and tx_time and tx_time < floor:
+            continue
+        result = payment_verifier.verify_btc_tx(
+            tx,
+            tip_height=tip_height,
+            to_address=method.get("address"),
+            required_amount=required_amount,
+            confirmations_required=confirmations_required,
+        )
+        candidate = {
+            "txid": txid,
+            "detected_amount": result.get("detected_amount", ""),
+            "confirmations": result.get("confirmations", 0),
+            "error": result.get("error", ""),
+        }
+        if result.get("status") == "confirmed":
+            candidates.append(candidate)
+        elif result.get("status") == "detected":
+            insufficient.append(candidate)
+
+    if len(candidates) == 1:
+        return {"status": "confirmed", "error": "", **candidates[0]}
+    if len(candidates) > 1:
+        best = max(candidates, key=lambda item: (item.get("confirmations", 0), item.get("txid", "")))
+        return {
+            "status": "ambiguous",
+            "detected_amount": best.get("detected_amount", ""),
+            "confirmations": best.get("confirmations", 0),
+            "error": "multiple matching transfers found, txid required",
+        }
+    if insufficient:
+        best = max(insufficient, key=lambda item: (item.get("confirmations", 0), item.get("txid", "")))
+        return {
+            "status": "detected",
+            "detected_amount": best.get("detected_amount", ""),
+            "confirmations": best.get("confirmations", 0),
+            "error": best.get("error", ""),
+        }
+    return {
+        "status": "awaiting_payment",
+        "detected_amount": payment.get("detected_amount", ""),
+        "confirmations": int(payment.get("confirmations", 0) or 0),
+        "error": "",
+    }
+
+
 def _owned_payment(payment_id, username, admin=False):
     payment = payments_store.get_payment(payment_id)
     if not payment:
@@ -289,6 +366,8 @@ def verify_payment(payment, method):
     if not txid:
         if payment_wallets.is_evm_chain(chain) and method.get("token_contract"):
             return _scan_evm_erc20_payment(payment, method)
+        if chain == "bitcoin":
+            return _scan_btc_payment(payment, method)
         return {
             "status": (payment or {}).get("status", "awaiting_payment"),
             "detected_amount": (payment or {}).get("detected_amount", ""),

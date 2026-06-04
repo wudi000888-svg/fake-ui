@@ -1049,6 +1049,96 @@ def test_refresh_without_txid_marks_ambiguous_when_multiple_matching_transfers(p
     assert order_after["payment_status"] == "ambiguous"
 
 
+def create_btc_order_and_method(monkeypatch):
+    plans_store = importlib.import_module("plans_store")
+    orders_store = importlib.import_module("orders_store")
+    payments_store = importlib.import_module("payments_store")
+    user_admin = importlib.import_module("user_admin")
+    payment_rates = importlib.import_module("payment_rates")
+
+    monkeypatch.setattr(user_admin, "enforce_users_now", lambda: "ok")
+    payment_rates.save_overrides({"BTC": "100000"})
+    plan = plans_store.upsert_plan(
+        {"id": "standard", "name": "Standard", "days": "30", "traffic_gb": "100", "price": "39"}
+    )
+    order = orders_store.create_pending_order("alice", "renew", plan, operator="alice")
+    method = payments_store.upsert_method(
+        {
+            "asset": "BTC",
+            "chain": "bitcoin",
+            "address": "bc1qqqqqqqqqqqqqqqqqqqq",
+        }
+    )
+    return order, method
+
+
+def test_refresh_without_txid_scans_btc_address_txs_and_completes_order(payment_modules, monkeypatch):
+    orders_store = importlib.import_module("orders_store")
+    payment_service = importlib.import_module("payment_service")
+    payment_verifier = importlib.import_module("payment_verifier")
+    payments_store = importlib.import_module("payments_store")
+
+    order, method = create_btc_order_and_method(monkeypatch)
+    payment = payment_service.create_payment_for_order(order["id"], method["id"], "alice")
+
+    def fake_http_json(url):
+        if url.endswith("/address/bc1qqqqqqqqqqqqqqqqqqqq/txs"):
+            return [
+                {
+                    "txid": "btc_tx_1",
+                    "status": {"confirmed": True, "block_height": 100, "block_time": 2147483647},
+                    "vout": [{"scriptpubkey_address": method["address"], "value": 39000}],
+                }
+            ]
+        if url.endswith("/blocks/tip/height"):
+            return 103
+        raise AssertionError(url)
+
+    monkeypatch.setattr(payment_verifier, "http_json", fake_http_json)
+
+    refreshed = payment_service.refresh_payment(payment["id"], "alice")
+
+    assert refreshed["status"] == "confirmed"
+    assert refreshed["txid"] == "btc_tx_1"
+    assert refreshed["detected_amount"] == "0.00039000"
+    assert refreshed["confirmations"] == 4
+    assert orders_store.get_order(order["id"])["status"] == "completed"
+    assert payments_store.txid_used("btc_tx_1")
+
+
+def test_refresh_without_txid_marks_btc_ambiguous_for_multiple_matches(payment_modules, monkeypatch):
+    orders_store = importlib.import_module("orders_store")
+    payment_service = importlib.import_module("payment_service")
+    payment_verifier = importlib.import_module("payment_verifier")
+
+    order, method = create_btc_order_and_method(monkeypatch)
+    payment = payment_service.create_payment_for_order(order["id"], method["id"], "alice")
+
+    def tx(txid):
+        return {
+            "txid": txid,
+            "status": {"confirmed": True, "block_height": 100, "block_time": 2147483647},
+            "vout": [{"scriptpubkey_address": method["address"], "value": 39000}],
+        }
+
+    def fake_http_json(url):
+        if url.endswith("/address/bc1qqqqqqqqqqqqqqqqqqqq/txs"):
+            return [tx("btc_tx_1"), tx("btc_tx_2")]
+        if url.endswith("/blocks/tip/height"):
+            return 103
+        raise AssertionError(url)
+
+    monkeypatch.setattr(payment_verifier, "http_json", fake_http_json)
+
+    refreshed = payment_service.refresh_payment(payment["id"], "alice")
+
+    assert refreshed["status"] == "ambiguous"
+    assert "txid required" in refreshed["error"]
+    order_after = orders_store.get_order(order["id"])
+    assert order_after["status"] == "pending"
+    assert order_after["payment_status"] == "ambiguous"
+
+
 def test_optional_txid_can_recover_cancelled_order_after_payment(payment_modules, monkeypatch):
     orders_store = importlib.import_module("orders_store")
     payment_service = importlib.import_module("payment_service")
