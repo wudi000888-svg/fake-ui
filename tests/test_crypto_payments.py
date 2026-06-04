@@ -28,6 +28,7 @@ MODULES = [
     "payment_wallets",
     "payment_verifier",
     "payment_service",
+    "api_payment_routes",
 ]
 
 
@@ -961,3 +962,123 @@ def test_payment_service_sanitizes_api_tokens_in_errors(payment_modules):
     assert "apikey=[redacted]" in error
     assert "token=[redacted]" in error
     assert "api_key=[redacted]" in error
+
+
+def user_session(username):
+    return {"u": username, "r": "user", "role": "user"}
+
+
+def admin_session_for_payments():
+    return {"u": "admin", "r": "admin", "role": "admin"}
+
+
+def test_payment_api_user_flow(payment_modules, monkeypatch):
+    api = importlib.import_module("api")
+    plans_store = importlib.import_module("plans_store")
+    payments_store = importlib.import_module("payments_store")
+    payment_service = importlib.import_module("payment_service")
+    user_admin = importlib.import_module("user_admin")
+
+    monkeypatch.setattr(user_admin, "enforce_users_now", lambda: "ok")
+    monkeypatch.setattr(
+        payment_service,
+        "verify_payment",
+        lambda p, m: {"status": "confirmed", "detected_amount": p["crypto_amount"], "confirmations": 12, "error": ""},
+    )
+    plans_store.upsert_plan({"id": "standard", "name": "Standard", "days": "30", "traffic_gb": "100", "price": "39"})
+    payments_store.upsert_method(
+        {
+            "id": "usdt-eth",
+            "asset": "USDT",
+            "chain": "ethereum",
+            "address": "0x2222222222222222222222222222222222222222",
+            "token_contract": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+            "rpc_url": "https://rpc.example",
+            "confirmations_required": "12",
+            "enabled": True,
+        }
+    )
+
+    status, payload = api.handle_post("/api/orders/create", {"plan_id": "standard", "kind": "renew"}, user_session("alice"))
+    assert status == 200
+    order_id = payload["order"]["id"]
+
+    status, payload = api.handle_post("/api/payments/create", {"order_id": order_id, "method_id": "usdt-eth"}, user_session("alice"))
+    assert status == 200
+    payment_id = payload["payment"]["id"]
+
+    status, payload = api.handle_post("/api/payments/submit-tx", {"id": payment_id, "txid": "0xtx"}, user_session("alice"))
+    assert status == 200
+    assert payload["payment"]["status"] == "confirmed"
+
+
+def test_payment_method_admin_api(payment_modules):
+    api = importlib.import_module("api")
+    status, payload = api.handle_post(
+        "/api/payment-methods/save",
+        {
+            "id": "btc-main",
+            "asset": "BTC",
+            "chain": "bitcoin",
+            "address": "bc1qqqqqqqqqqqqqqqqqqqq",
+            "btc_api_url": "https://blockstream.info/api",
+            "confirmations_required": "3",
+        },
+        admin_session_for_payments(),
+    )
+    assert status == 200
+    assert payload["method"]["id"] == "btc-main"
+
+    status, payload = api.handle_get("/api/payment-methods", user_session("alice"))
+    assert status == 200
+    assert payload["methods"][0]["id"] == "btc-main"
+    assert "btc_api_url" not in payload["methods"][0]
+
+
+def test_user_post_admin_actions_stay_forbidden(payment_modules):
+    api = importlib.import_module("api")
+
+    status, payload = api.handle_post("/api/users/action", {"username": "alice", "action": "disable"}, user_session("alice"))
+    assert status == 403
+    assert payload["ok"] is False
+
+    status, payload = api.handle_post("/api/orders/action", {"id": "ord_1", "action": "confirm"}, user_session("alice"))
+    assert status == 403
+    assert payload["ok"] is False
+
+
+def test_user_order_create_ignores_body_username(payment_modules, monkeypatch):
+    api = importlib.import_module("api")
+    plans_store = importlib.import_module("plans_store")
+    user_admin = importlib.import_module("user_admin")
+
+    monkeypatch.setattr(user_admin, "enforce_users_now", lambda: "ok")
+    plans_store.upsert_plan({"id": "standard", "name": "Standard", "days": "30", "traffic_gb": "100", "price": "39"})
+
+    status, payload = api.handle_post(
+        "/api/orders/create",
+        {"plan_id": "standard", "kind": "renew", "username": "bob"},
+        user_session("alice"),
+    )
+
+    assert status == 200
+    assert payload["order"]["username"] == "alice"
+
+
+def test_user_cannot_save_payment_methods(payment_modules):
+    api = importlib.import_module("api")
+
+    status, payload = api.handle_post(
+        "/api/payment-methods/save",
+        {
+            "id": "btc-main",
+            "asset": "BTC",
+            "chain": "bitcoin",
+            "address": "bc1qqqqqqqqqqqqqqqqqqqq",
+            "btc_api_url": "https://blockstream.info/api",
+        },
+        user_session("alice"),
+    )
+
+    assert status == 403
+    assert payload["ok"] is False

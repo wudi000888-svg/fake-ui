@@ -11,6 +11,7 @@ import registration_store
 import subscription_guard
 import xray_panel
 from api_common import ok, require_admin
+from api_payment_routes import handle_payment_get
 from http_utils import api_error
 
 
@@ -80,5 +81,9 @@ def handle_get(path, session):
         role = session.get("role") or session.get("r")
         username = session.get("u", "")
         return ok(links=ops.admin_links() if role == "admin" else ops.user_links(username))
+
+    payment_result = handle_payment_get(clean, session)
+    if payment_result is not None:
+        return payment_result
 
     return api_error("not found", 404)

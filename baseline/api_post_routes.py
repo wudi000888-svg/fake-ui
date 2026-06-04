@@ -4,6 +4,7 @@ import operations_service as ops
 from api_admin_routes import handle_admin_post
 from api_common import ok, require_admin
 from api_node_routes import handle_node_post
+from api_payment_routes import handle_payment_post, is_admin
 from api_public_routes import handle_public_post
 from api_self_routes import handle_self_post
 from api_user_routes import handle_user_post
@@ -31,10 +32,15 @@ def handle_post(path, data, session):
         result["clear_session"] = True
         return ok(**result)
 
-    if (err := require_admin(session)):
-        return err
+    if not is_admin(session):
+        if clean == "/api/orders/create":
+            return handle_user_post(clean, data, session)
+        payment_result = handle_payment_post(clean, data, session)
+        if payment_result is not None:
+            return payment_result
+        return api_error("forbidden", 403)
 
-    for handler in (handle_admin_post, handle_user_post, handle_node_post):
+    for handler in (handle_admin_post, handle_user_post, handle_node_post, handle_payment_post):
         result = handler(clean, data, session)
         if result is not None:
             return result
