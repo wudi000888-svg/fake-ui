@@ -359,9 +359,16 @@ def test_payment_rates_lock_amounts_with_overrides(payment_modules):
 
 def test_payment_rates_validate_overrides(payment_modules):
     payment_rates = importlib.import_module("payment_rates")
+    payments_store = payment_modules["payments_store"]
+
+    payments_store.save_rates({"overrides": {}, "cache": {"BTC": {"rate_usd": "30000", "updated_at": "now"}}})
 
     with pytest.raises(RuntimeError, match="rate must be positive"):
         payment_rates.save_overrides({"ETH": "0"})
+
+    saved = payment_rates.save_overrides({"ETH": "3000"})
+    assert saved["overrides"] == {"ETH": "3000"}
+    assert saved["cache"] == {"BTC": {"rate_usd": "30000", "updated_at": "now"}}
 
 
 def test_payment_rates_require_missing_volatile_rates(payment_modules):
@@ -379,3 +386,22 @@ def test_payment_rates_round_up_and_support_usdc(payment_modules):
 
     assert payment_rates.rate_for_asset("USDC") == "1"
     assert payment_rates.crypto_amount_for_usd("1", "BTC", 8) == "0.00003334"
+
+
+def test_payment_rates_reject_invalid_amounts_and_decimals(payment_modules):
+    payment_rates = importlib.import_module("payment_rates")
+    payments_store = payment_modules["payments_store"]
+
+    payments_store.save_rates({"overrides": {"BTC": "30000"}, "cache": {}})
+
+    with pytest.raises(RuntimeError, match="usd amount must be positive"):
+        payment_rates.crypto_amount_for_usd("-1", "BTC", 8)
+
+    with pytest.raises(RuntimeError, match="usd amount must be positive"):
+        payment_rates.crypto_amount_for_usd("0", "BTC", 8)
+
+    with pytest.raises(RuntimeError, match="decimals"):
+        payment_rates.crypto_amount_for_usd("1", "BTC", "8.5")
+
+    with pytest.raises(RuntimeError, match="decimals"):
+        payment_rates.crypto_amount_for_usd("1", "BTC", 19)

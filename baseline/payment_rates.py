@@ -28,6 +28,17 @@ def _rate_text(value):
     return format(rate, "f")
 
 
+def _decimals_value(decimals):
+    try:
+        text = str(decimals).strip()
+        places = int(text)
+    except (TypeError, ValueError):
+        raise RuntimeError("decimals must be an integer between 0 and 18") from None
+    if text != str(places) or places < 0 or places > 18:
+        raise RuntimeError("decimals must be an integer between 0 and 18")
+    return places
+
+
 def rate_for_asset(asset):
     normalized_asset = _asset_text(asset)
     if normalized_asset in STABLES:
@@ -47,11 +58,11 @@ def rate_for_asset(asset):
 
 
 def crypto_amount_for_usd(usd_amount, asset, decimals):
-    places = int(decimals)
-    if places < 0:
-        raise RuntimeError("decimals must be non-negative")
-
+    places = _decimals_value(decimals)
     usd = decimal_text(usd_amount)
+    if usd <= 0:
+        raise RuntimeError("usd amount must be positive")
+
     rate = Decimal(rate_for_asset(asset))
     quant = Decimal(1).scaleb(-places)
     amount = (usd / rate).quantize(quant, rounding=ROUND_UP)
