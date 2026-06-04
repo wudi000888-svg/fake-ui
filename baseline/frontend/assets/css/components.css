@@ -8,6 +8,12 @@ textarea {
 button {
   min-height: 44px;
   cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
 input,
@@ -46,6 +52,12 @@ label {
   color: var(--ink);
   background: var(--surface);
   border-color: var(--line);
+}
+
+.quiet-danger {
+  color: var(--danger);
+  border-color: #fecaca;
+  background: var(--danger-soft);
 }
 
 .side-nav .nav-item {
@@ -199,6 +211,7 @@ label {
 .admin-card p {
   margin: 0;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .mobile-card.current {
@@ -215,6 +228,13 @@ label {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.payment-start {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .admin-actions,
@@ -275,6 +295,11 @@ label {
   gap: 10px;
 }
 
+.stack {
+  display: grid;
+  gap: 14px;
+}
+
 .card-list.compact {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
@@ -299,6 +324,17 @@ label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mono,
+.payment-code,
+code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--muted);
 }
 
 .order-card {
@@ -361,6 +397,10 @@ label {
   background: var(--surface-soft);
 }
 
+[hidden] {
+  display: none !important;
+}
+
 @media (max-width: 767px) {
   .stat-grid,
   .card-grid,
@@ -385,6 +425,10 @@ label {
   }
 
   .order-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-start {
     grid-template-columns: 1fr;
   }
 

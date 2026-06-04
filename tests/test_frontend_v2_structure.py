@@ -55,6 +55,9 @@ def test_frontend_v2_user_pages_have_mobile_commercial_flows():
     assert "txid" in orders.lower()
     assert "待处理" in orders
     assert "历史订单" in orders
+    assert "已取消" in orders
+    assert "payment-start" in orders
+    assert "paymentMethodOptions" in orders
 
 
 def test_frontend_v2_admin_pages_use_task_cards_and_bottom_sheets():
@@ -67,3 +70,37 @@ def test_frontend_v2_admin_pages_use_task_cards_and_bottom_sheets():
     assert "bottom-sheet" in orders
     nodes = (assets / "nodes.js").read_text(encoding="utf-8")
     assert "exit quality" in nodes.lower()
+
+
+def test_frontend_v2_spa_wires_commercial_actions():
+    main = read_asset("js/main.js")
+    for endpoint in [
+        "/api/orders/create",
+        "/api/orders/action",
+        "/api/payments/create",
+        "/api/payments/refresh",
+        "/api/payments/submit-tx",
+        "/api/payment-methods/save",
+        "/api/payment-methods/action",
+        "/api/cache/clear",
+    ]:
+        assert endpoint in main
+    for action in [
+        "buy-plan",
+        "payment-start",
+        "payment-refresh",
+        "payment-submit-txid",
+        "order-cancel",
+        "payment-method-action",
+        "cache-clear",
+    ]:
+        assert action in main
+
+
+def test_frontend_v2_admin_payment_settings_are_address_first():
+    settings = read_asset("js/pages/admin/settings.js")
+    assert 'data-form="payment-method-save"' in settings
+    assert 'name="payment_type"' in settings
+    assert 'name="address"' in settings
+    assert "RPC URL" not in settings
+    assert "Token 合约" not in settings

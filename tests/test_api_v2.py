@@ -106,3 +106,21 @@ def test_api_v2_cache_status_and_clear_are_admin_only(v2_modules):
     status, payload = api.handle_post("/api/cache/clear", {}, {"u": "admin", "r": "admin", "role": "admin"})
     assert status == 200
     assert payload["cache"]["items"] == 0
+
+
+def test_admin_dashboard_survives_subscription_link_generation_failure(v2_modules, monkeypatch):
+    api = v2_modules["api"]
+    links = importlib.import_module("links")
+
+    monkeypatch.setattr(
+        links,
+        "build_vless_links_for_airport_user",
+        lambda username, user: (_ for _ in ()).throw(FileNotFoundError("xray")),
+    )
+
+    status, payload = api.handle_get("/api/dashboard", {"u": "admin", "r": "admin", "role": "admin"})
+
+    assert status == 200
+    assert "data" in payload
+    assert payload["data"]["links"]["error"] == "xray"
+    assert "users" in payload["data"]

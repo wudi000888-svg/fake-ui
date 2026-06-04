@@ -134,19 +134,10 @@ def user_links(username):
 
 def admin_links():
     user = admin_profile.get_admin_user()
-    vless_links = links.build_vless_links_for_airport_user(admin_profile.ADMIN_USERNAME, user)
     token = user.get("sub_token", "")
     base_sub = app_urls.subscription_url(token) if token else ""
-    return {
+    result = {
         "username": admin_profile.ADMIN_USERNAME,
-        "vless": vless_links[0] if vless_links else "",
-        "vless_links": vless_links,
-        "vless_qrs": [
-            f"/qr/vless/{urllib.parse.quote(node.get('id', ''))}"
-            for node in node_catalog.nodes_for_user(user, kind="vless", include_disabled=False)
-            if node_catalog.vless_uuid_for_user(user, node.get("id", ""))
-        ],
-        "hy2": links.build_hy2_link_for_airport_user(admin_profile.ADMIN_USERNAME, user),
         "subscription_url": base_sub,
         "raw_subscription_url": base_sub + "/raw" if base_sub else "",
         "mihomo_subscription_url": base_sub + "/mihomo" if base_sub else "",
@@ -154,6 +145,23 @@ def admin_links():
         "hy2_qr": "/qr/hy2",
         "subscription_qr": app_urls.subscription_qr_path(token) if token else "",
     }
+    try:
+        vless_links = links.build_vless_links_for_airport_user(admin_profile.ADMIN_USERNAME, user)
+        result.update(
+            {
+                "vless": vless_links[0] if vless_links else "",
+                "vless_links": vless_links,
+                "vless_qrs": [
+                    f"/qr/vless/{urllib.parse.quote(node.get('id', ''))}"
+                    for node in node_catalog.nodes_for_user(user, kind="vless", include_disabled=False)
+                    if node_catalog.vless_uuid_for_user(user, node.get("id", ""))
+                ],
+                "hy2": links.build_hy2_link_for_airport_user(admin_profile.ADMIN_USERNAME, user),
+            }
+        )
+    except Exception as exc:
+        result.update({"error": str(exc), "vless": "", "vless_links": [], "vless_qrs": [], "hy2": ""})
+    return result
 
 
 def dashboard(session):

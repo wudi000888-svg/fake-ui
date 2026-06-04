@@ -18,6 +18,65 @@ import { renderUserPlans } from "./pages/user/plans.js";
 const app = document.querySelector("#app");
 
 
+function formData(form) {
+  return Object.fromEntries(new FormData(form).entries());
+}
+
+
+function cssEscape(value) {
+  if (window.CSS?.escape) return window.CSS.escape(String(value || ""));
+  return String(value || "").replace(/["\\]/g, "\\$&");
+}
+
+
+function firstEnabledPaymentMethod() {
+  return (state.data.payment_methods || []).find((method) => method.enabled !== false);
+}
+
+
+async function copyText(text) {
+  const value = String(text || "");
+  if (!value) throw new Error("没有可复制的内容");
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+
+
+async function runAction(work, success = "操作已完成") {
+  try {
+    state.busy = true;
+    const message = await work();
+    await refresh();
+    setNotice(message || success, "success");
+  } catch (error) {
+    setNotice(error.message, "error");
+  } finally {
+    state.busy = false;
+    await render();
+  }
+}
+
+
+function showInlineForm(selector) {
+  const el = app.querySelector(selector);
+  if (!el) return false;
+  el.hidden = !el.hidden;
+  if (!el.hidden) el.querySelector("input, select, button")?.focus();
+  return true;
+}
+
+
 function loginView() {
   return `
     <section class="login-screen">
@@ -138,7 +197,7 @@ app.addEventListener("submit", async (event) => {
   const form = event.target.closest("[data-form]");
   if (!form) return;
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(form).entries());
+  const data = formData(form);
   try {
     if (form.dataset.form === "login") {
       const result = await post("/api/login", data);
@@ -146,6 +205,29 @@ app.addEventListener("submit", async (event) => {
       state.shell = await api("/api/app-shell");
       await refresh();
       setNotice("登录成功", "success");
+    }
+    if (form.dataset.form === "order-create") {
+      await runAction(async () => {
+        const out = await post("/api/orders/create", data);
+        state.route = "orders";
+        history.pushState(null, "", "/orders");
+        return `订单已创建：${out.order.id}`;
+      });
+      return;
+    }
+    if (form.dataset.form === "payment-method-save") {
+      await runAction(async () => {
+        const [asset, chain] = String(data.payment_type || "").split(":");
+        await post("/api/payment-methods/save", {
+          asset,
+          chain,
+          address: data.address || "",
+          enabled: data.enabled !== "false",
+        });
+        form.reset();
+        return "收款方式已保存";
+      });
+      return;
     }
   } catch (error) {
     setNotice(error.message, "error");
@@ -157,10 +239,141 @@ app.addEventListener("submit", async (event) => {
 app.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-action]");
   if (!button) return;
+  if (state.busy && button.dataset.action !== "logout") return;
   try {
     if (button.dataset.action === "refresh") {
       await refresh();
       setNotice("已刷新", "success");
+    }
+    if (button.dataset.action === "open-plans") {
+      state.route = "plans";
+      history.pushState(null, "", "/plans");
+    }
+    if (button.dataset.action === "open-links") {
+      state.route = "links";
+      history.pushState(null, "", "/links");
+    }
+    if (button.dataset.action === "open-nodes") {
+      state.route = "nodes";
+      history.pushState(null, "", "/nodes");
+    }
+    if (button.dataset.action === "orders-refresh" || button.dataset.action === "users-filter" || button.dataset.action === "orders-filter" || button.dataset.action === "nodes-filter") {
+      await refresh();
+      setNotice("已刷新", "success");
+    }
+    if (button.dataset.action === "order-create-sheet") {
+      showInlineForm(".order-create-form");
+      return;
+    }
+    if (button.dataset.action === "payment-method-sheet") {
+      showInlineForm(".payment-method-form");
+      return;
+    }
+    if (button.dataset.action === "copy-subscription" || button.dataset.action === "copy-node" || button.dataset.action === "copy") {
+      await copyText(button.dataset.text || "");
+      setNotice("已复制", "success");
+    }
+    if (button.dataset.action === "buy-plan") {
+      const planId = button.dataset.plan || "";
+      await runAction(async () => {
+        const out = await post("/api/orders/create", { plan_id: planId, kind: "renew", note: "self-service checkout" });
+        const method = firstEnabledPaymentMethod();
+        if (method) {
+          await post("/api/payments/create", { order_id: out.order.id, method_id: method.id });
+          state.route = "orders";
+          history.pushState(null, "", "/orders");
+          return "订单和付款码已生成";
+        }
+        state.route = "orders";
+        history.pushState(null, "", "/orders");
+        return "订单已生成，请等待管理员配置收款方式";
+      });
+      return;
+    }
+    if (button.dataset.action === "payment-start") {
+      const orderId = button.dataset.order || "";
+      const selector = app.querySelector(`select[data-payment-method-for="${cssEscape(orderId)}"]`);
+      await runAction(async () => {
+        const out = await post("/api/payments/create", { order_id: orderId, method_id: selector?.value || "" });
+        return `付款码已生成：${out.payment.asset} ${out.payment.crypto_amount}`;
+      });
+      return;
+    }
+    if (button.dataset.action === "payment-refresh") {
+      await runAction(async () => {
+        const out = await post("/api/payments/refresh", { id: button.dataset.payment || "" });
+        return `付款状态：${out.payment.status}`;
+      });
+      return;
+    }
+    if (button.dataset.action === "payment-submit-txid") {
+      const card = button.closest("article");
+      const txid = card?.querySelector('input[name="txid"]')?.value || "";
+      await runAction(async () => {
+        const path = txid.trim() ? "/api/payments/submit-tx" : "/api/payments/refresh";
+        const out = await post(path, { id: button.dataset.payment || "", txid });
+        return `付款状态：${out.payment.status}`;
+      });
+      return;
+    }
+    if (button.dataset.action === "order-cancel") {
+      if (!confirm(`确认取消订单 ${button.dataset.order || ""}？`)) return;
+      await runAction(async () => {
+        await post("/api/orders/action", { id: button.dataset.order || "", action: "cancel" });
+        return "订单已取消";
+      });
+      return;
+    }
+    if (button.dataset.action === "order-action") {
+      const action = button.dataset.orderAction || "";
+      if (action === "cancel" && !confirm(`确认取消订单 ${button.dataset.order || ""}？`)) return;
+      await runAction(async () => {
+        await post("/api/orders/action", { id: button.dataset.order || "", action });
+        return action === "confirm" ? "订单已确认" : "订单已取消";
+      });
+      return;
+    }
+    if (button.dataset.action === "payment-method-edit") {
+      const method = (state.data.payment_methods || []).find((item) => item.id === button.dataset.method);
+      const form = app.querySelector('form[data-form="payment-method-save"]');
+      if (method && form) {
+        app.querySelector(".payment-method-form").hidden = false;
+        form.elements.payment_type.value = `${String(method.asset || "").toUpperCase()}:${String(method.chain || "").toLowerCase()}`;
+        form.elements.address.value = method.address || "";
+        form.elements.enabled.value = method.enabled === false ? "false" : "true";
+        form.elements.address.focus();
+      }
+      return;
+    }
+    if (button.dataset.action === "payment-method-action") {
+      const action = button.dataset.methodAction || "";
+      if (action === "delete" && !confirm(`确认删除收款方式 ${button.dataset.method || ""}？`)) return;
+      await runAction(async () => {
+        await post("/api/payment-methods/action", { id: button.dataset.method || "", action });
+        return "收款方式已更新";
+      });
+      return;
+    }
+    if (button.dataset.action === "cache-clear") {
+      await runAction(async () => {
+        await post("/api/cache/clear", {});
+        return "缓存已清理";
+      });
+      return;
+    }
+    if (button.dataset.action === "node-quality-check") {
+      await runAction(async () => {
+        await post("/api/nodes/action", { id: button.dataset.node || "", action: "refresh" });
+        return "出口质量已刷新";
+      });
+      return;
+    }
+    if (button.dataset.action === "node-add") {
+      await runAction(async () => {
+        await post("/api/nodes/add-vless", {});
+        return "节点已新增";
+      });
+      return;
     }
     if (button.dataset.action === "logout") {
       await post("/api/logout", {});
