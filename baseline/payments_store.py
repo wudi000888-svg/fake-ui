@@ -114,7 +114,7 @@ def upsert_method(method):
         item.setdefault("created_at", _now_iso())
         data["methods"].append(item)
     else:
-        if existing.get("created_at") and not item.get("created_at"):
+        if existing.get("created_at"):
             item["created_at"] = existing["created_at"]
         data["methods"][index] = item
     item["updated_at"] = _now_iso()

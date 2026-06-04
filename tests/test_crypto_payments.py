@@ -275,3 +275,34 @@ def test_payment_method_validation_rejects_bad_wallet_config(payment_modules):
             }
         )
     assert store.list_methods(admin=True) == []
+
+
+def test_upsert_method_preserves_existing_created_at(payment_modules):
+    store = payment_modules["payments_store"]
+
+    first = store.upsert_method(
+        {
+            "id": "btc-main",
+            "asset": "BTC",
+            "chain": "bitcoin",
+            "address": "bc1qexample",
+            "btc_api_url": "https://btc-api.example",
+        }
+    )
+    original_created_at = first["created_at"]
+    original_updated_at = first["updated_at"]
+
+    updated = store.upsert_method(
+        {
+            "id": "btc-main",
+            "asset": "BTC",
+            "chain": "bitcoin",
+            "address": "bc1qexample",
+            "btc_api_url": "https://btc-api.example/v2",
+            "created_at": "2099-01-01T00:00:00+00:00",
+        }
+    )
+
+    assert updated["created_at"] == original_created_at
+    assert updated["updated_at"] != original_updated_at
+    assert store.get_method("btc-main")["created_at"] == original_created_at
