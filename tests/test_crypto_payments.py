@@ -172,3 +172,106 @@ def test_payment_public_helpers_update_kwargs_and_list_limit(payment_modules):
     store.update_payment(first["id"], txid="tx123")
     with pytest.raises(RuntimeError, match="txid already used"):
         store.update_payment(second["id"], txid="TX123")
+
+
+def test_payment_method_validation_and_qr_payloads(payment_modules):
+    payment_wallets = importlib.import_module("payment_wallets")
+
+    evm = payment_wallets.normalize_method(
+        {
+            "id": "eth-main",
+            "asset": "ETH",
+            "chain": "ethereum",
+            "address": "0x2222222222222222222222222222222222222222",
+            "rpc_url": "https://rpc.example",
+            "confirmations_required": "12",
+        }
+    )
+    assert evm["decimals"] == 18
+    assert (
+        payment_wallets.qr_payload(evm, "0.010000000000000000")
+        == "ethereum:0x2222222222222222222222222222222222222222?value=0.010000000000000000"
+    )
+
+    btc = payment_wallets.normalize_method(
+        {
+            "id": "btc-main",
+            "asset": "BTC",
+            "chain": "bitcoin",
+            "address": "bc1qexample",
+            "btc_api_url": "https://blockstream.info/api",
+            "confirmations_required": "3",
+        }
+    )
+    assert btc["decimals"] == 8
+    assert payment_wallets.qr_payload(btc, "0.00039000") == "bitcoin:bc1qexample?amount=0.00039000"
+
+    with pytest.raises(RuntimeError, match="token contract"):
+        payment_wallets.normalize_method(
+            {
+                "id": "bad-usdt",
+                "asset": "USDT",
+                "chain": "ethereum",
+                "address": "0x2222222222222222222222222222222222222222",
+                "rpc_url": "https://rpc.example",
+            }
+        )
+
+
+def test_payment_method_validation_rejects_bad_wallet_config(payment_modules):
+    payment_wallets = importlib.import_module("payment_wallets")
+    store = payment_modules["payments_store"]
+
+    with pytest.raises(RuntimeError, match="unsupported payment asset or chain"):
+        payment_wallets.normalize_method(
+            {
+                "id": "eth-bsc",
+                "asset": "ETH",
+                "chain": "bsc",
+                "address": "0x2222222222222222222222222222222222222222",
+                "rpc_url": "https://rpc.example",
+            }
+        )
+
+    with pytest.raises(RuntimeError, match="EVM address"):
+        payment_wallets.normalize_method(
+            {
+                "id": "bad-address",
+                "asset": "ETH",
+                "chain": "ethereum",
+                "address": "0xnot-an-address",
+                "rpc_url": "https://rpc.example",
+            }
+        )
+
+    with pytest.raises(RuntimeError, match="rpc_url required"):
+        payment_wallets.normalize_method(
+            {
+                "id": "missing-rpc",
+                "asset": "ETH",
+                "chain": "ethereum",
+                "address": "0x2222222222222222222222222222222222222222",
+            }
+        )
+
+    with pytest.raises(RuntimeError, match="btc_api_url required"):
+        payment_wallets.normalize_method(
+            {
+                "id": "missing-btc-api",
+                "asset": "BTC",
+                "chain": "bitcoin",
+                "address": "bc1qexample",
+            }
+        )
+
+    with pytest.raises(RuntimeError, match="unsupported payment asset or chain"):
+        store.upsert_method(
+            {
+                "id": "eth-bsc",
+                "asset": "ETH",
+                "chain": "bsc",
+                "address": "0x2222222222222222222222222222222222222222",
+                "rpc_url": "https://rpc.example",
+            }
+        )
+    assert store.list_methods(admin=True) == []

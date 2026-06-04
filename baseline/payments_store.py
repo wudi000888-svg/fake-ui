@@ -2,6 +2,7 @@ import secrets
 from copy import deepcopy
 from datetime import datetime, timezone
 
+import payment_wallets
 from json_store import load_json, save_json
 from panel_config import PAYMENTS_FILE
 
@@ -106,18 +107,17 @@ def get_method(method_id):
 
 def upsert_method(method):
     data = load_payments()
-    item = dict(method)
-    item["id"] = str(item.get("id", "")).strip()
-    if not item["id"]:
-        raise RuntimeError("payment method id required")
-    if "enabled" not in item:
-        item["enabled"] = True
+    item = payment_wallets.normalize_method(method)
 
-    index, _ = _find_method(data, item["id"])
+    index, existing = _find_method(data, item["id"])
     if index is None:
+        item.setdefault("created_at", _now_iso())
         data["methods"].append(item)
     else:
+        if existing.get("created_at") and not item.get("created_at"):
+            item["created_at"] = existing["created_at"]
         data["methods"][index] = item
+    item["updated_at"] = _now_iso()
     save_payments(data)
     return deepcopy(item)
 
