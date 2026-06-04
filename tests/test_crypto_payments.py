@@ -859,3 +859,105 @@ def test_detected_payment_keeps_order_pending(payment_modules, monkeypatch):
     assert detected["status"] == "detected"
     assert order_after["status"] == "pending"
     assert order_after["payment_status"] == "detected"
+
+
+def test_create_payment_for_order_reuses_existing_active_payment(payment_modules, monkeypatch):
+    payments_store = importlib.import_module("payments_store")
+    payment_service = importlib.import_module("payment_service")
+
+    order, method = create_standard_order_and_method(monkeypatch)
+    first = payment_service.create_payment_for_order(order["id"], method["id"], "alice")
+    second = payment_service.create_payment_for_order(order["id"], method["id"], "alice")
+
+    assert second["id"] == first["id"]
+    assert len(payments_store.list_payments(username="alice", admin=True)) == 1
+
+
+def test_old_confirmed_payment_does_not_complete_order(payment_modules, monkeypatch):
+    orders_store = importlib.import_module("orders_store")
+    payments_store = importlib.import_module("payments_store")
+    payment_service = importlib.import_module("payment_service")
+    user_admin = importlib.import_module("user_admin")
+
+    order, method = create_standard_order_and_method(monkeypatch)
+    current = payment_service.create_payment_for_order(order["id"], method["id"], "alice")
+    old = payments_store.create_payment(
+        {
+            "order_id": order["id"],
+            "username": "alice",
+            "method_id": method["id"],
+            "asset": method["asset"],
+            "chain": method["chain"],
+            "usd_amount": "39.0",
+            "crypto_amount": "39.000000",
+            "rate_usd": "1",
+            "address": method["address"],
+            "qr_payload": method["address"],
+            "expires_at": "2099-01-01T00:00:00+00:00",
+        }
+    )
+    payments_store.attach_txid(old["id"], "0xold")
+
+    def fail_confirm(order_id, operator="admin"):
+        raise AssertionError("old payment must not complete order")
+
+    monkeypatch.setattr(user_admin, "confirm_order", fail_confirm)
+    monkeypatch.setattr(
+        payment_service,
+        "verify_payment",
+        lambda p, m: {"status": "confirmed", "detected_amount": p["crypto_amount"], "confirmations": 12, "error": ""},
+    )
+    verified_old = payment_service.refresh_payment(old["id"], "alice")
+    assert verified_old["status"] == "confirmed"
+    assert orders_store.get_order(order["id"])["status"] == "pending"
+    assert orders_store.get_order(order["id"])["payment_id"] == current["id"]
+
+
+def test_failed_payment_refresh_does_not_call_verifier_or_change_status(payment_modules, monkeypatch):
+    payments_store = importlib.import_module("payments_store")
+    payment_service = importlib.import_module("payment_service")
+
+    order, method = create_standard_order_and_method(monkeypatch)
+    payment = payment_service.create_payment_for_order(order["id"], method["id"], "alice")
+    payments_store.update_payment(payment["id"], status="failed", txid="0xfailed", error="amount too low")
+
+    def fail_verify(payment, method):
+        raise AssertionError("final payment must not be verified again")
+
+    monkeypatch.setattr(payment_service, "verify_payment", fail_verify)
+    refreshed = payment_service.refresh_payment(payment["id"], "alice")
+    submitted = payment_service.submit_tx_and_verify(payment["id"], "0xnew", "alice")
+
+    assert refreshed["status"] == "failed"
+    assert submitted["status"] == "failed"
+    assert submitted["txid"] == "0xfailed"
+    assert submitted["error"] == "amount too low"
+
+
+def test_refresh_deleted_method_keeps_status_and_writes_error(payment_modules, monkeypatch):
+    payments_store = importlib.import_module("payments_store")
+    payment_service = importlib.import_module("payment_service")
+
+    order, method = create_standard_order_and_method(monkeypatch)
+    payment = payment_service.create_payment_for_order(order["id"], method["id"], "alice")
+    payments_store.delete_method(method["id"])
+
+    refreshed = payment_service.refresh_payment(payment["id"], "alice")
+
+    assert refreshed["status"] == "awaiting_payment"
+    assert "payment method not found" in refreshed["error"]
+
+
+def test_payment_service_sanitizes_api_tokens_in_errors(payment_modules):
+    payment_service = importlib.import_module("payment_service")
+
+    error = payment_service._sanitize_error(
+        "GET https://rpc.example/path?apikey=secret&token=another&keep=value&api_key=third failed"
+    )
+
+    assert "secret" not in error
+    assert "another" not in error
+    assert "third" not in error
+    assert "apikey=[redacted]" in error
+    assert "token=[redacted]" in error
+    assert "api_key=[redacted]" in error
