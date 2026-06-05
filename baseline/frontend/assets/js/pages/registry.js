@@ -2,6 +2,7 @@ import { renderAdminNodes } from "./admin/nodes.js";
 import { renderAdminOrders } from "./admin/orders.js";
 import { renderAdminOverview } from "./admin/overview.js";
 import { renderAdminBackups } from "./admin/backups.js";
+import { renderAdminHy2 } from "./admin/hy2.js";
 import { renderAdminPlans } from "./admin/plans.js";
 import { renderAdminDashboard, renderAdminSimplePage } from "./admin/simple.js";
 import { renderAdminSettings } from "./admin/settings.js";
@@ -31,6 +32,6 @@ export function pageForState(state) {
   if (state.route === "requests") return renderAdminSimplePage("申请", state.data.registrations || []);
   if (state.route === "audit") return renderAdminSimplePage("审计", state.data.audit || []);
   if (state.route === "backups") return renderAdminBackups(data);
-  if (state.route === "hy2") return renderAdminDashboard(state.data);
+  if (state.route === "hy2") return renderAdminHy2(data);
   return renderAdminOverview(state.data);
 }

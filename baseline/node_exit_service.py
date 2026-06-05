@@ -11,6 +11,8 @@ def apply_node_exit_info(node):
             info = geo_utils.direct_exit_info()
         else:
             proxy = hy2_panel.hy2_proxy_endpoint()
+            if not proxy.get("addr") or not proxy.get("port"):
+                raise RuntimeError("Hysteria2 代理配置缺少地址或端口，无法检测出口。")
             info = geo_utils.proxy_exit_info(
                 proxy.get("addr", ""),
                 int(proxy.get("port", 0) or 0),
@@ -18,7 +20,7 @@ def apply_node_exit_info(node):
                 proxy.get("password", ""),
                 proxy.get("type", mode),
             )
-        node["outbound_mode"] = "direct"
+        node["outbound_mode"] = mode
     elif kind == "vless":
         mode = node_catalog.outbound_mode(node)
         if mode == "direct":
@@ -42,4 +44,3 @@ def apply_node_exit_info(node):
     if node.get("exit_ip"):
         node["name"] = node_catalog.display_name_for_node(node, node.get("name", ""))
     return node
-

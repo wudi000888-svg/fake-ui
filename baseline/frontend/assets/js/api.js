@@ -6,7 +6,12 @@ export async function api(path, options = {}) {
   if (options.body !== undefined) {
     init.body = JSON.stringify(options.body);
   }
-  const response = await fetch(path, init);
+  let response;
+  try {
+    response = await fetch(path, init);
+  } catch (error) {
+    throw new Error(`无法连接面板 API：${error.message}`);
+  }
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data.ok === false) {
     throw new Error(data.error || `HTTP ${response.status}`);

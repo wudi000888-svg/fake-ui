@@ -131,6 +131,50 @@ def test_frontend_v2_admin_pages_use_task_cards_and_bottom_sheets():
     assert 'data-form="backup-import"' in backups
 
 
+def test_frontend_v2_admin_hy2_page_has_real_controls():
+    registry = read_asset("js/pages/registry.js")
+    assert "renderAdminHy2" in registry
+    assert 'state.route === "hy2"' in registry
+
+    hy2 = read_asset("js/pages/admin/hy2.js")
+    assert 'data-form="hy2-save"' in hy2
+    assert 'data-action="hy2-disable"' in hy2
+    assert 'name="proxy_type"' in hy2
+    assert "Hysteria2 出口" in hy2
+    assert "运行状态" in hy2
+    assert "currentProxy" in hy2
+    assert "addrFromProxy" in hy2
+    assert "hy2-status-head" in hy2
+
+
+def test_frontend_v2_node_actions_update_state_from_api_response():
+    user_node_actions = read_asset("js/actions/users_nodes.js")
+    assert "export function applyNodePayload" in user_node_actions
+    assert "out.nodes" in user_node_actions
+    assert "out.node" in user_node_actions
+    assert "state.data.nodes" in user_node_actions
+    assert "节点已保存，出口信息已同步" in user_node_actions
+
+
+def test_frontend_v2_hy2_actions_are_admin_owned_and_sync_nodes():
+    admin_actions = read_asset("js/actions/admin.js")
+    user_node_actions = read_asset("js/actions/users_nodes.js")
+
+    assert "/api/hy2/apply" in admin_actions
+    assert "/api/hy2/disable" in admin_actions
+    assert "applyNodePayload" in admin_actions
+    assert "hy2-save" not in user_node_actions
+    assert "hy2-disable" not in user_node_actions
+
+
+def test_frontend_v2_get_api_failures_show_server_errors_not_fetch_only():
+    api_js = read_asset("js/api.js")
+    assert "GET" in api_js
+    assert "response.json" in api_js
+    assert "data.error" in api_js
+    assert "无法连接面板 API" in api_js
+
+
 def test_frontend_v2_spa_wires_commercial_actions():
     action_source = read_action_assets()
     for endpoint in [
@@ -196,6 +240,7 @@ def test_frontend_v2_layout_prevents_dashboard_overflow():
     assert "side-nav-footer" in layout_js
     assert "nav-stack secondary" not in layout_js
     assert "nav-stack-secondary" in layout_js
+    assert "[...primaryItems, ...secondaryItems]" in layout_js
     assert "overflow-x: hidden" in layout_css
     assert "overflow-y: auto" in layout_css
     assert "grid-template-rows: auto minmax(0, 1fr) auto" in layout_css
@@ -208,6 +253,7 @@ def test_frontend_v2_layout_prevents_dashboard_overflow():
     assert "max-width:" in layout_css
     assert ".workspace-v2" in layout_css
     assert ".side-nav .nav-item" in components_css
+    assert ".hy2-status-head" in components_css
     assert "min-height: 40px" in components_css
     assert "minmax(0, 1fr)" in components_css
     assert "overflow-wrap: anywhere" in components_css

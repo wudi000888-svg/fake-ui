@@ -5,6 +5,49 @@ from panel_config import HY2_CONFIG_FILE, HY2_LOGS_CMD, HY2_STATUS_CMD
 from sync_utils import run_shell
 
 
+def _parse_url_proxy(url):
+    parsed = urllib.parse.urlparse(url)
+    return {
+        "addr": parsed.hostname or "",
+        "port": int(parsed.port or 0),
+        "user": urllib.parse.unquote(parsed.username or ""),
+        "password": urllib.parse.unquote(parsed.password or ""),
+        "type": "socks5" if parsed.scheme.startswith("socks") else "http",
+    }
+
+
+def _parse_socks5_block(lines, start):
+    endpoint = {"addr": "", "port": 0, "user": "", "password": "", "type": "socks5"}
+    for raw in lines[start + 1:]:
+        stripped = raw.strip()
+        if raw.startswith("  - ") or stripped.startswith("type: "):
+            break
+        if stripped.startswith("addr: "):
+            host_port = stripped.replace("addr: ", "", 1).strip()
+            if ":" in host_port:
+                host, port = host_port.rsplit(":", 1)
+                endpoint["addr"] = host.strip()
+                endpoint["port"] = int(port.strip() or 0)
+        elif stripped.startswith("username: "):
+            endpoint["user"] = stripped.replace("username: ", "", 1).strip()
+        elif stripped.startswith("password: "):
+            endpoint["password"] = stripped.replace("password: ", "", 1).strip()
+    return endpoint if endpoint["addr"] and endpoint["port"] else {}
+
+
+def _format_proxy(endpoint):
+    if not endpoint:
+        return "未配置"
+    user = urllib.parse.quote(endpoint.get("user", ""), safe="")
+    password = urllib.parse.quote(endpoint.get("password", ""), safe="")
+    auth = f"{user}:{password}@" if user or password else ""
+    return f"{endpoint.get('type', 'http')}://{auth}{endpoint.get('addr', '')}:{endpoint.get('port', 0)}"
+
+
+def _clean_shell_output(value):
+    return str(value or "").strip().strip('"').strip("'")
+
+
 def status():
     env = hy2_env_service.read_env()
     text = HY2_CONFIG_FILE.read_text(encoding="utf-8") if HY2_CONFIG_FILE.exists() else ""
@@ -14,12 +57,7 @@ def status():
     elif "type: http" in text and "http-proxy" in text:
         proxy_type = "HTTP"
     enabled = bool(proxy_type)
-    proxy = "未配置"
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("url: http://") or line.startswith("url: socks5://"):
-            proxy = line.replace("url: ", "")
-            break
+    proxy = _format_proxy(proxy_endpoint())
     code, running = run_shell(HY2_STATUS_CMD, timeout=15)
     code2, logs = run_shell(HY2_LOGS_CMD, timeout=15)
     return {
@@ -28,8 +66,8 @@ def status():
         "enabled": enabled,
         "proxy_type": proxy_type,
         "proxy": proxy,
-        "running": running.strip() if code == 0 else "unknown",
-        "logs": logs.strip(),
+        "running": _clean_shell_output(running) if code == 0 else "unknown",
+        "logs": str(logs or "").strip(),
     }
 
 
@@ -44,18 +82,14 @@ def outbound_mode():
 
 def proxy_endpoint():
     text = HY2_CONFIG_FILE.read_text(encoding="utf-8") if HY2_CONFIG_FILE.exists() else ""
-    for line in text.splitlines():
+    lines = text.splitlines()
+    for idx, line in enumerate(lines):
         line = line.strip()
         if line.startswith("url: http://") or line.startswith("url: socks5://"):
             url = line.replace("url: ", "", 1)
-            parsed = urllib.parse.urlparse(url)
-            user = urllib.parse.unquote(parsed.username or "")
-            password = urllib.parse.unquote(parsed.password or "")
-            return {
-                "addr": parsed.hostname or "",
-                "port": int(parsed.port or 0),
-                "user": user,
-                "password": password,
-                "type": "socks5" if parsed.scheme.startswith("socks") else "http",
-            }
+            return _parse_url_proxy(url)
+        if line == "socks5:":
+            endpoint = _parse_socks5_block(lines, idx)
+            if endpoint:
+                return endpoint
     return {}

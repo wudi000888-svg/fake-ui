@@ -49,6 +49,7 @@ MODULES_TO_RELOAD = [
     "hy2_env_service",
     "hy2_config_builder",
     "hy2_runtime",
+    "hy2_status_service",
     "api",
 ]
 
@@ -223,6 +224,189 @@ def test_node_add_disable_delete_flow(app_modules, monkeypatch):
     assert status == 200
     with pytest.raises(RuntimeError):
         node_catalog.get_node(node_id)
+
+
+def test_node_save_refreshes_exit_info_and_public_payload(app_modules, monkeypatch):
+    api = app_modules["api"]
+    node_catalog = app_modules["node_catalog"]
+
+    def fake_exit_info(node):
+        updated = dict(node)
+        updated.update(
+            {
+                "exit_ip": "198.51.100.44",
+                "country_code": "JP",
+                "country": "Japan",
+                "city": "Tokyo",
+                "region": "JP",
+                "name": "JP - 198.51.100.44",
+            }
+        )
+        return updated
+
+    monkeypatch.setattr(app_modules["operations_service"], "apply_node_exit_info", fake_exit_info)
+
+    status, payload = api.handle_post(
+        "/api/nodes/save",
+        {
+            "id": "vless-main",
+            "name": "Manual Name",
+            "kind": "vless",
+            "outbound_mode": "direct",
+            "group": "default",
+            "sort": "10",
+        },
+        admin_session(app_modules),
+    )
+
+    assert status == 200
+    assert payload["node"]["exit_ip"] == "198.51.100.44"
+    assert payload["node"]["country_code"] == "JP"
+    assert payload["node"]["display_name"] == "JP - 198.51.100.44"
+    stored = node_catalog.get_node("vless-main")
+    assert stored["exit_ip"] == "198.51.100.44"
+    assert stored["country_code"] == "JP"
+
+
+def test_hy2_apply_and_disable_refresh_node_payload(app_modules, monkeypatch):
+    api = app_modules["api"]
+
+    monkeypatch.setattr(
+        app_modules["api_admin_routes"].hy2_panel,
+        "hy2_apply_proxy",
+        lambda addr, port, user, password, proxy_type: {"message": "hy2 proxy enabled"},
+    )
+    monkeypatch.setattr(
+        app_modules["api_admin_routes"].hy2_panel,
+        "hy2_disable_proxy",
+        lambda: {"message": "hy2 direct"},
+    )
+
+    def fake_exit_info(node):
+        updated = dict(node)
+        updated.update({"exit_ip": "203.0.113.88", "country_code": "SG", "country": "Singapore", "name": "SG - 203.0.113.88"})
+        return updated
+
+    monkeypatch.setattr(app_modules["operations_service"], "apply_node_exit_info", fake_exit_info)
+
+    status, payload = api.handle_post(
+        "/api/hy2/apply",
+        {"addr": "127.0.0.1", "port": "8080", "proxy_type": "http", "user": "", "password": ""},
+        admin_session(app_modules),
+    )
+    assert status == 200
+    assert payload["node"]["id"] == "hy2-main"
+    assert payload["node"]["display_name"] == "SG - 203.0.113.88"
+
+    status, payload = api.handle_post("/api/hy2/disable", {}, admin_session(app_modules))
+    assert status == 200
+    assert payload["node"]["id"] == "hy2-main"
+
+
+def test_hy2_status_parses_http_and_socks5_proxy_endpoint(app_modules, tmp_path, monkeypatch):
+    hy2_status_service = app_modules["hy2_status_service"]
+
+    env_file = tmp_path / "hy2.env"
+    env_file.write_text("HY_DOMAIN=hy.example.test\nHY_PASSWORD=secret\nHY_PORT=8443\n", encoding="utf-8")
+    config_file = tmp_path / "hy2.yaml"
+    monkeypatch.setattr(app_modules["hy2_env_service"], "HY2_ENV_FILE", env_file)
+    monkeypatch.setattr(hy2_status_service, "HY2_CONFIG_FILE", config_file)
+    monkeypatch.setattr(hy2_status_service, "run_shell", lambda cmd, timeout=15: (0, 'running"\n'))
+
+    config_file.write_text(
+        "\n".join(
+            [
+                "outbounds:",
+                "  - name: http-proxy",
+                "    type: http",
+                "    http:",
+                "      url: http://u:p@198.51.100.10:8080",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert hy2_status_service.outbound_mode() == "http"
+    assert hy2_status_service.proxy_endpoint() == {
+        "addr": "198.51.100.10",
+        "port": 8080,
+        "user": "u",
+        "password": "p",
+        "type": "http",
+    }
+    status = hy2_status_service.status()
+    assert status["proxy"] == "http://u:p@198.51.100.10:8080"
+    assert status["running"] == "running"
+
+    config_file.write_text(
+        "\n".join(
+            [
+                "outbounds:",
+                "  - name: socks5-proxy",
+                "    type: socks5",
+                "    socks5:",
+                "      addr: 203.0.113.20:1080",
+                "      username: alice",
+                "      password: secret-pass",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert hy2_status_service.outbound_mode() == "socks5"
+    assert hy2_status_service.proxy_endpoint() == {
+        "addr": "203.0.113.20",
+        "port": 1080,
+        "user": "alice",
+        "password": "secret-pass",
+        "type": "socks5",
+    }
+    assert hy2_status_service.status()["proxy"] == "socks5://alice:secret-pass@203.0.113.20:1080"
+
+
+def test_hy2_exit_refresh_preserves_proxy_mode(app_modules, monkeypatch):
+    node_exit_service = importlib.import_module("node_exit_service")
+
+    monkeypatch.setattr(node_exit_service.hy2_panel, "hy2_outbound_mode", lambda: "socks5")
+    monkeypatch.setattr(
+        node_exit_service.hy2_panel,
+        "hy2_proxy_endpoint",
+        lambda: {"addr": "127.0.0.1", "port": 1080, "user": "", "password": "", "type": "socks5"},
+    )
+    monkeypatch.setattr(
+        node_exit_service.geo_utils,
+        "proxy_exit_info",
+        lambda addr, port, user, password, proxy_type: {"ip": "203.0.113.9", "country_code": "US", "country": "United States"},
+    )
+
+    node = node_exit_service.apply_node_exit_info({"id": "hy2-main", "name": "Hysteria2", "kind": "hy2"})
+
+    assert node["outbound_mode"] == "socks5"
+    assert node["exit_ip"] == "203.0.113.9"
+    assert node["country_code"] == "US"
+
+
+def test_http_api_get_converts_exceptions_to_json_errors(app_modules, monkeypatch):
+    http_api_routes = importlib.import_module("http_api_routes")
+    captured = {}
+
+    class FakeHandler:
+        path = "/api/dashboard"
+
+        def current_session(self):
+            return admin_session(app_modules)
+
+        def respond_json(self, payload, status):
+            captured["payload"] = payload
+            captured["status"] = status
+
+    def raise_boom(path, session):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(http_api_routes.api, "handle_get", raise_boom)
+    http_api_routes.handle_get(FakeHandler())
+
+    assert captured["status"] == 400
+    assert captured["payload"]["ok"] is False
+    assert captured["payload"]["error"] == "boom"
 
 
 def test_admin_can_manage_plans(app_modules):

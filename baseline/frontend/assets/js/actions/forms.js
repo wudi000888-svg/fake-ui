@@ -1,7 +1,7 @@
 import { cssEscape, fillForm, openForm, closeBySelector } from "../dom.js";
 
 
-const FORM_SELECTOR = ".user-create-form, .user-edit-form, .node-edit-form, .plan-edit-form";
+const FORM_SELECTOR = ".user-create-form, .user-edit-form, .node-edit-form, .plan-edit-form, .hy2-edit-form";
 
 
 export function closeForms(root) {

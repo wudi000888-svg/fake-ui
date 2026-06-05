@@ -2,7 +2,10 @@ import api
 
 
 def handle_get(handler):
-    status, payload = api.handle_get(handler.path, handler.current_session())
+    try:
+        status, payload = api.handle_get(handler.path, handler.current_session())
+    except Exception as exc:
+        status, payload = api.api_error(str(exc), 400)
     if status == 200 and isinstance(payload, dict) and isinstance(payload.get("content"), (bytes, bytearray)):
         filename = payload.get("filename") or "fake-ui-backup.tgz"
         handler.respond_bytes(

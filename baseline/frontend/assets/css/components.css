@@ -210,6 +210,18 @@ label {
   gap: 12px;
 }
 
+.admin-card > div.hy2-status-head:first-child {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.admin-card > div.hy2-status-head:first-child span {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
 .mobile-card strong,
 .admin-card strong,
 .mobile-card span,
@@ -360,6 +372,20 @@ label {
   color: var(--danger);
   background: var(--danger-soft);
   font-weight: 700;
+}
+
+.log-box {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #0f172a;
+  color: #dbeafe;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .payment-timeline {
@@ -590,6 +616,14 @@ code {
   .admin-card > div:first-child,
   .order-card-head {
     align-items: flex-start;
+  }
+
+  .admin-card > div.hy2-status-head:first-child {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-card > div.hy2-status-head:first-child span {
+    text-align: left;
   }
 
   .order-actions {

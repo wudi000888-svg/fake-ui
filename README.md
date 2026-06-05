@@ -104,13 +104,13 @@ fake-ui 就是把这两件事接在一起：
 
 以下截图来自本地 demo 数据，只用于展示运行效果，不包含真实域名、用户密码、订阅 token 或代理账号。
 
-| 桌面运营概览 | 移动端用户订单 |
+| 桌面 Hysteria2 管理 | 桌面节点出口同步 |
 |---|---|
-| ![v2 桌面运营概览](docs/screenshots/v2/desktop-admin-overview.png) | ![v2 移动端用户订单](docs/screenshots/v2/mobile-user-orders.png) |
+| ![v2 桌面 Hysteria2 管理](docs/screenshots/v2/desktop-admin-hy2.png) | ![v2 桌面节点出口同步](docs/screenshots/v2/desktop-admin-nodes.png) |
 
-| 移动端订单管理 | 移动端设置 |
+| 移动端 Hysteria2 管理 | 移动端用户订单 |
 |---|---|
-| ![v2 移动端订单管理](docs/screenshots/v2/mobile-admin-orders.png) | ![v2 移动端设置](docs/screenshots/v2/mobile-admin-settings.png) |
+| ![v2 移动端 Hysteria2 管理](docs/screenshots/v2/mobile-admin-hy2.png) | ![v2 移动端用户订单](docs/screenshots/v2/mobile-user-orders.png) |
 
 ## 项目结构
 

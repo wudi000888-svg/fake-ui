@@ -32,6 +32,7 @@ function notice() {
 export function layout(content) {
   const primaryItems = state.shell?.nav || [];
   const secondaryItems = state.shell?.secondary_nav || [];
+  const mobileItems = [...primaryItems, ...secondaryItems];
   const nav = primaryItems.map(navButton).join("");
   const secondary = secondaryItems.map(navButton).join("");
   const username = state.shell?.username || state.session?.username || "";
@@ -68,7 +69,7 @@ export function layout(content) {
         </header>
         <main class="main-v2">${notice()}${content}</main>
       </div>
-      <nav class="bottom-nav" aria-label="移动端导航">${primaryItems.map(navButton).join("")}</nav>
+      <nav class="bottom-nav" aria-label="移动端导航">${mobileItems.map(navButton).join("")}</nav>
     </div>
   `;
 }

@@ -4,6 +4,18 @@ import { state } from "../state.js";
 import { closeForms, fillNodeForm, fillUserForm } from "./forms.js";
 
 
+export function applyNodePayload(out) {
+  if (out?.nodes) state.data.nodes = out.nodes;
+  if (out?.node && !out.nodes) {
+    const nodes = state.data.nodes || [];
+    const index = nodes.findIndex((item) => item.id === out.node.id);
+    state.data.nodes = index >= 0
+      ? nodes.map((item) => item.id === out.node.id ? out.node : item)
+      : [...nodes, out.node];
+  }
+}
+
+
 export async function handleUserNodeAction(button, app, { runAction }) {
   const actionName = button.dataset.action;
   if (actionName === "user-create-sheet") {
@@ -48,8 +60,9 @@ export async function handleUserNodeAction(button, app, { runAction }) {
   }
   if (actionName === "node-quality-check") {
     await runAction(async () => {
-      await post("/api/nodes/action", { id: button.dataset.node || "", action: "refresh" });
-      return "出口质量已刷新";
+      const out = await post("/api/nodes/action", { id: button.dataset.node || "", action: "refresh" });
+      applyNodePayload(out);
+      return "出口质量已刷新，节点信息已同步";
     });
     return true;
   }
@@ -57,7 +70,8 @@ export async function handleUserNodeAction(button, app, { runAction }) {
     const action = button.dataset.nodeAction || "";
     if (action === "delete" && !confirm(`确认删除节点 ${button.dataset.node || ""}？`)) return true;
     await runAction(async () => {
-      await post("/api/nodes/action", { id: button.dataset.node || "", action });
+      const out = await post("/api/nodes/action", { id: button.dataset.node || "", action });
+      applyNodePayload(out);
       if (action === "refresh") return "出口质量已刷新";
       if (action === "delete") return "节点已删除";
       return "节点已更新";
@@ -66,8 +80,9 @@ export async function handleUserNodeAction(button, app, { runAction }) {
   }
   if (actionName === "node-add") {
     await runAction(async () => {
-      await post("/api/nodes/add-vless", {});
-      return "节点已新增";
+      const out = await post("/api/nodes/add-vless", {});
+      applyNodePayload(out);
+      return "节点已新增，出口信息已同步";
     });
     return true;
   }
@@ -94,8 +109,9 @@ export async function handleUserNodeForm(form, data, { runAction }) {
   }
   if (form.dataset.form === "node-save") {
     await runAction(async () => {
-      await post("/api/nodes/save", data);
-      return "节点已保存";
+      const out = await post("/api/nodes/save", data);
+      applyNodePayload(out);
+      return "节点已保存，出口信息已同步";
     });
     return true;
   }

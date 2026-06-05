@@ -1,6 +1,7 @@
 import { download, post } from "../api.js";
 import { state } from "../state.js";
 import { closeForms, fillPlanForm } from "./forms.js";
+import { applyNodePayload } from "./users_nodes.js";
 
 
 async function fileToBase64(file) {
@@ -63,6 +64,15 @@ export async function handleAdminAction(button, app, { runAction }) {
       state.busy = false;
     }
   }
+  if (actionName === "hy2-disable") {
+    await runAction(async () => {
+      const out = await post("/api/hy2/disable", {});
+      applyNodePayload(out);
+      if (out?.hy2) state.data.hy2 = out.hy2;
+      return "Hysteria2 已恢复直连，节点信息已同步";
+    });
+    return true;
+  }
   return false;
 }
 
@@ -76,6 +86,15 @@ export async function handleAdminForm(form, data, app, { runAction }) {
       await post("/api/backups/upload", { filename: file.name, content_b64: await fileToBase64(file) });
       form.reset();
       return "备份已导入并恢复";
+    });
+    return true;
+  }
+  if (form.dataset.form === "hy2-save") {
+    await runAction(async () => {
+      const out = await post("/api/hy2/apply", data);
+      applyNodePayload(out);
+      if (out?.hy2) state.data.hy2 = out.hy2;
+      return "Hysteria2 出口已保存，节点信息已同步";
     });
     return true;
   }

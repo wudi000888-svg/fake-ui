@@ -3,6 +3,7 @@ import base64
 import audit_log
 import backup_manager
 import hy2_panel
+import hy2_status_service
 import node_catalog
 import operations_service as ops
 import plans_store
@@ -36,13 +37,13 @@ def handle_admin_post(clean, data, session):
         )
         node = node_catalog.upsert_node(ops.apply_node_exit_info(node_catalog.get_node("hy2-main")))
         audit_log.write(session.get("u", "admin"), "hy2.apply", "hy2-main", node)
-        return ok(result=result, node=node_catalog.public_node(node, admin=True))
+        return ok(result=result, node=node_catalog.public_node(node, admin=True), nodes=node_catalog.list_public_nodes(admin=True), hy2=hy2_status_service.status())
 
     if clean == "/api/hy2/disable":
         result = hy2_panel.hy2_disable_proxy()
         node = node_catalog.upsert_node(ops.apply_node_exit_info(node_catalog.get_node("hy2-main")))
         audit_log.write(session.get("u", "admin"), "hy2.disable", "hy2-main", node)
-        return ok(result=result, node=node_catalog.public_node(node, admin=True))
+        return ok(result=result, node=node_catalog.public_node(node, admin=True), nodes=node_catalog.list_public_nodes(admin=True), hy2=hy2_status_service.status())
 
     if clean == "/api/plans/save":
         plan = plans_store.upsert_plan(data)
