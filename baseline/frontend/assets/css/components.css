@@ -71,7 +71,7 @@ label {
 }
 
 .side-nav .nav-item {
-  min-height: 44px;
+  min-height: 40px;
   display: grid;
   grid-template-columns: 10px 1fr;
   align-items: center;

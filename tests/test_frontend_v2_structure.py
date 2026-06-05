@@ -137,12 +137,15 @@ def test_frontend_v2_layout_prevents_dashboard_overflow():
     assert "side-nav-footer" in layout_js
     assert "overflow-x: hidden" in layout_css
     assert "overflow-y: auto" in layout_css
+    assert "grid-template-rows: auto minmax(0, 1fr) auto" in layout_css
     assert ".side-nav-scroll" in layout_css
     assert ".side-nav-footer" in layout_css
     assert "margin-top: auto" not in layout_css
     assert ".version-chip" in layout_css
     assert "max-width:" in layout_css
     assert ".workspace-v2" in layout_css
+    assert ".side-nav .nav-item" in components_css
+    assert "min-height: 40px" in components_css
     assert "minmax(0, 1fr)" in components_css
     assert "overflow-wrap: anywhere" in components_css
 
