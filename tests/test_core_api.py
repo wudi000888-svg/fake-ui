@@ -149,6 +149,72 @@ def test_node_add_disable_delete_flow(app_modules, monkeypatch):
         node_catalog.get_node(node_id)
 
 
+def test_admin_can_manage_plans(app_modules):
+    api = app_modules["api"]
+    plans_store = app_modules["plans_store"]
+
+    status, payload = api.handle_post(
+        "/api/plans/save",
+        {
+            "id": "pro-plan",
+            "name": "Pro Plan",
+            "days": "45",
+            "traffic_gb": "512",
+            "price": "19.9",
+            "node_groups": "default,sg",
+            "sort": "30",
+            "enabled": True,
+        },
+        admin_session(app_modules),
+    )
+    assert status == 200
+    assert payload["plan"]["id"] == "pro-plan"
+    assert plans_store.get_plan("pro-plan")["price"] == 19.9
+
+    status, payload = api.handle_post(
+        "/api/plans/action",
+        {"id": "pro-plan", "action": "disable"},
+        admin_session(app_modules),
+    )
+    assert status == 200
+    assert plans_store.get_plan("pro-plan")["enabled"] is False
+
+    status, payload = api.handle_post(
+        "/api/plans/action",
+        {"id": "pro-plan", "action": "enable"},
+        admin_session(app_modules),
+    )
+    assert status == 200
+    assert plans_store.get_plan("pro-plan")["enabled"] is True
+
+    status, payload = api.handle_post(
+        "/api/plans/action",
+        {"id": "pro-plan", "action": "delete"},
+        admin_session(app_modules),
+    )
+    assert status == 200
+    assert plans_store.get_plan("pro-plan") is None
+
+
+def test_non_admin_cannot_manage_plans(app_modules):
+    api = app_modules["api"]
+    session = {"u": "viewer", "r": "user", "role": "user"}
+
+    status, payload = api.handle_post(
+        "/api/plans/save",
+        {"id": "bad-plan", "name": "Bad", "days": "30", "traffic_gb": "1", "price": "1"},
+        session,
+    )
+    assert status == 403
+
+    status, payload = api.handle_post(
+        "/api/plans/action",
+        {"id": "starter", "action": "disable"},
+        session,
+    )
+    assert status == 403
+
+
 def test_subscription_urls_are_configured(app_modules):
     app_urls = app_modules["app_urls"]
     assert app_urls.subscription_url("tok") == "https://example.test/sub/tok"

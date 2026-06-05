@@ -6,6 +6,7 @@ import { statusPill, stat } from "./components/ui.js";
 import { renderAdminNodes } from "./pages/admin/nodes.js";
 import { renderAdminOrders } from "./pages/admin/orders.js";
 import { renderAdminOverview } from "./pages/admin/overview.js";
+import { renderAdminPlans } from "./pages/admin/plans.js";
 import { renderAdminSettings } from "./pages/admin/settings.js";
 import { renderAdminUsers } from "./pages/admin/users.js";
 import { renderUserAccount } from "./pages/user/account.js";
@@ -112,7 +113,7 @@ function openForm(selector) {
 
 
 function closeForms() {
-  app.querySelectorAll(".user-create-form, .user-edit-form, .node-edit-form").forEach((el) => {
+  app.querySelectorAll(".user-create-form, .user-edit-form, .node-edit-form, .plan-edit-form").forEach((el) => {
     el.hidden = true;
   });
 }
@@ -163,6 +164,25 @@ function fillUserForm(user) {
   }, ["username", "action", "plan_id", "days", "quota_gb", "node_ids"]);
   form?.scrollIntoView({ behavior: "smooth", block: "start" });
   form?.elements.action?.focus();
+}
+
+
+function fillPlanForm(plan = {}) {
+  openForm(".plan-edit-form");
+  const form = app.querySelector('form[data-form="plan-save"]');
+  fillForm(form, {
+    id: plan?.id || "",
+    name: plan?.name || "",
+    days: plan?.days ?? "30",
+    traffic_gb: plan?.traffic_gb ?? "0",
+    price: plan?.price ?? "0",
+    node_groups: Array.isArray(plan?.node_groups) ? plan.node_groups.join(",") : (plan?.node_groups || "default"),
+    sort: plan?.sort ?? "100",
+    enabled: plan?.enabled === false ? "false" : "true",
+  }, ["id", "name", "days", "traffic_gb", "price", "node_groups", "sort", "enabled"]);
+  if (form?.elements.id) form.elements.id.readOnly = Boolean(plan?.id);
+  form?.scrollIntoView({ behavior: "smooth", block: "start" });
+  form?.elements.name?.focus();
 }
 
 
@@ -239,7 +259,7 @@ function page() {
   if (state.route === "account" || state.route === "settings") return renderAdminSettings(data);
   if (state.route === "users") return renderAdminUsers(data);
   if (state.route === "nodes") return renderAdminNodes(data);
-  if (state.route === "plans") return adminSimplePage("套餐", "plans");
+  if (state.route === "plans") return renderAdminPlans(data);
   if (state.route === "links") return adminSimplePage("订阅", "links");
   if (state.route === "requests") return adminSimplePage("申请", "registrations");
   if (state.route === "audit") return adminSimplePage("审计", "audit");
@@ -343,6 +363,18 @@ app.addEventListener("submit", async (event) => {
       });
       return;
     }
+    if (form.dataset.form === "plan-save") {
+      await runAction(async () => {
+        await post("/api/plans/save", {
+          ...data,
+          enabled: data.enabled !== "false",
+        });
+        form.reset();
+        closeForms();
+        return "套餐已保存";
+      });
+      return;
+    }
   } catch (error) {
     setNotice(error.message, "error");
   }
@@ -386,6 +418,11 @@ app.addEventListener("click", async (event) => {
       await render();
       return;
     }
+    if (button.dataset.action === "plans-filter") {
+      setFilter("plans");
+      await render();
+      return;
+    }
     if (button.dataset.action === "orders-refresh") {
       await refresh();
       setNotice("已刷新", "success");
@@ -395,7 +432,7 @@ app.addEventListener("click", async (event) => {
       openForm(".user-create-form");
       return;
     }
-    if (button.dataset.action === "user-form-close" || button.dataset.action === "node-form-close") {
+    if (button.dataset.action === "user-form-close" || button.dataset.action === "node-form-close" || button.dataset.action === "plan-form-close") {
       closeForms();
       return;
     }
@@ -536,6 +573,27 @@ app.addEventListener("click", async (event) => {
       await runAction(async () => {
         await post("/api/payment-methods/action", { id: button.dataset.method || "", action });
         return "收款方式已更新";
+      });
+      return;
+    }
+    if (button.dataset.action === "plan-create-sheet") {
+      closeForms();
+      fillPlanForm({});
+      return;
+    }
+    if (button.dataset.action === "plan-edit") {
+      const plan = (state.data.plans || []).find((item) => item.id === button.dataset.plan);
+      closeForms();
+      fillPlanForm(plan);
+      return;
+    }
+    if (button.dataset.action === "plan-action") {
+      const action = button.dataset.planAction || "";
+      if (action === "delete" && !confirm(`确认删除套餐 ${button.dataset.plan || ""}？`)) return;
+      await runAction(async () => {
+        await post("/api/plans/action", { id: button.dataset.plan || "", action });
+        if (action === "delete") return "套餐已删除";
+        return "套餐已更新";
       });
       return;
     }

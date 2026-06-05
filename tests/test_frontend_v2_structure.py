@@ -76,7 +76,7 @@ def test_frontend_v2_user_pages_have_mobile_commercial_flows():
 
 def test_frontend_v2_admin_pages_use_task_cards_and_bottom_sheets():
     assets = ASSETS / "js" / "pages" / "admin"
-    for name in ["overview.js", "users.js", "orders.js", "nodes.js", "settings.js"]:
+    for name in ["overview.js", "users.js", "orders.js", "nodes.js", "plans.js", "settings.js"]:
         text = (assets / name).read_text(encoding="utf-8")
         assert "admin-card" in text
         assert "data-action" in text
@@ -84,6 +84,10 @@ def test_frontend_v2_admin_pages_use_task_cards_and_bottom_sheets():
     assert "bottom-sheet" in orders
     nodes = (assets / "nodes.js").read_text(encoding="utf-8")
     assert "exit quality" in nodes.lower()
+    plans = (assets / "plans.js").read_text(encoding="utf-8")
+    assert 'data-form="plan-save"' in plans
+    assert 'data-action="plan-edit"' in plans
+    assert 'data-action="plan-action"' in plans
 
 
 def test_frontend_v2_spa_wires_commercial_actions():
@@ -96,6 +100,8 @@ def test_frontend_v2_spa_wires_commercial_actions():
         "/api/payments/submit-tx",
         "/api/payment-methods/save",
         "/api/payment-methods/action",
+        "/api/plans/save",
+        "/api/plans/action",
         "/api/cache/clear",
     ]:
         assert endpoint in main
@@ -107,6 +113,9 @@ def test_frontend_v2_spa_wires_commercial_actions():
         "payment-refresh",
         "payment-submit-txid",
         "order-cancel",
+        "plan-create-sheet",
+        "plan-edit",
+        "plan-action",
         "payment-method-action",
         "cache-clear",
     ]:
