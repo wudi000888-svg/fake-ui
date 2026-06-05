@@ -26,8 +26,8 @@ body {
   top: 0;
   height: 100dvh;
   min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 18px;
   padding: 18px 14px;
   color: #ffffff;
@@ -63,6 +63,8 @@ body {
 
 .nav-stack {
   display: grid;
+  grid-auto-rows: minmax(44px, max-content);
+  align-content: start;
   gap: 6px;
 }
 
