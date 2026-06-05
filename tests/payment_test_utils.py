@@ -37,6 +37,7 @@ def payment_modules(tmp_path, monkeypatch):
     panel_dir = tmp_path / "panel"
     panel_dir.mkdir()
     monkeypatch.setenv("PANEL_DIR", str(panel_dir))
+    monkeypatch.setenv("AIRPORT_LOGIN_LOG", str(tmp_path / "airport-users.log"))
     for name in MODULES:
         if name in sys.modules:
             importlib.reload(sys.modules[name])
