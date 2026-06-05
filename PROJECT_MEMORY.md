@@ -7,7 +7,7 @@ This file is a public-safe handoff note for future development sessions. It keep
 | Item | Value |
 |---|---|
 | Short name | `fake-ui` |
-| Current public version | `v2.0.0` |
+| Current public version | `v2.0.1` |
 | Chinese positioning | 单机多出口代理编排系统 |
 | Core idea | Use one VPS as a stable entry point, then orchestrate multiple VLESS/Hysteria2 nodes with independently controlled direct, HTTP, or SOCKS5 exits. |
 | Main pain point | Users want multiple high-quality regional exits without buying and maintaining one VPS per region. |
@@ -69,7 +69,7 @@ Current state:
 - Each VLESS node can independently use direct, HTTP upstream, or SOCKS5 upstream exits.
 - Exit IP/country naming can be synchronized to node names and subscriptions.
 - Users, plans, orders, registrations, subscriptions, quota, expiry, audit logs, and backups exist.
-- v2.0.0 includes mobile-first modular frontend, visible panel version, SQLite default storage, TTL cache, and cryptocurrency payments: USD-priced orders, receive-only admin addresses, USDT/USDC/ETH/BNB/BTC, QR codes, automatic EVM/BTC verification, TXID fallback, and order activation after confirmation.
+- v2.0.1 includes mobile-first modular frontend, visible panel version, SQLite default storage, TTL cache, cryptocurrency payments, restored Hysteria2 management, immediate node exit sync after save/refresh, refreshed GitHub screenshots, and CI/test fixture isolation.
 - Docker Compose deployment, native Nginx coexistence, SNI split, self-signed certificate fallback, and --renew-cert are supported.
 
 Development workflow:

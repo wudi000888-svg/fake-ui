@@ -19,14 +19,14 @@ def test_install_script_checks_v2_module_entry_and_sets_version():
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     routes = (ROOT / "baseline" / "api_v2_routes.py").read_text(encoding="utf-8")
 
-    assert "FAKE_UI_VERSION=2.0.0" in script
-    assert "FAKE_UI_VERSION: ${FAKE_UI_VERSION:-2.0.0}" in compose
+    assert "FAKE_UI_VERSION=2.0.1" in script
+    assert "FAKE_UI_VERSION: ${FAKE_UI_VERSION:-2.0.1}" in compose
     assert "FAKE_UI_STORE=sqlite" in script
     assert "FAKE_UI_STORE: ${FAKE_UI_STORE:-sqlite}" in compose
     assert "migrate-json-to-sqlite.py" in script
     assert "migrate-json-to-sqlite.py" in deploy
     assert '"FAKE_UI_STORE": "sqlite"' in deploy
-    assert '"FAKE_UI_VERSION": "2.0.0"' in deploy
+    assert '"FAKE_UI_VERSION": "2.0.1"' in deploy
     assert "/assets/js/main.js" in script
     assert "/assets/app.js" not in script
     assert "/assets/app.js" not in deploy

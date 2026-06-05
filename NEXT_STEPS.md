@@ -17,7 +17,7 @@ This file tracks public-safe development direction. It intentionally avoids live
 
 | Version | Theme | Candidate Work |
 |---|---|---|
-| v2.0.1 | Upgrade and install polish | `UPGRADE.md`, `scripts/upgrade.sh`, stronger installer preflight report. |
+| v2.0.2 | Upgrade and install polish | `UPGRADE.md`, `scripts/upgrade.sh`, stronger installer preflight report. |
 | v2.1.0 | Node orchestration | Exit quality checks, batch node refresh, per-user node visibility UX. |
 | v2.2.0 | Product experience | Dashboard polish, clearer plan/order states, onboarding hints. |
 | v2.3.0 | Operations | Scheduled backups, restore command, upgrade rollback helper. |
@@ -37,7 +37,17 @@ This file tracks public-safe development direction. It intentionally avoids live
 | Order UX | Pending, ambiguous, cancelled, and history states are separated in the frontend. |
 | Windows deploy | `scripts/deploy-compose-windows.ps1` packages, uploads, migrates SQLite, tests, backs up, rebuilds, and health-checks the panel. |
 
-## v2.0.1 Candidate Tasks
+## Completed in v2.0.1
+
+| Area | Result |
+|---|---|
+| Hysteria2 admin | Restored the dedicated H2 management page with proxy/direct controls, status, logs, and mobile access. |
+| Node sync | Node save/refresh and H2 changes apply backend-returned exit IP, country, and display names immediately. |
+| GitHub presentation | README and release screenshots reflect the current v2 admin H2 and node screens. |
+| CI stability | Test fixtures isolate runtime log/config paths so GitHub runner does not touch `/root`. |
+| Singapore deploy | Latest source was installed on the Singapore test VPS with Panel, Nginx, Xray, Hysteria2, DNS, and static resource checks. |
+
+## v2.0.2 Candidate Tasks
 
 | Priority | Task | Acceptance Criteria |
 |---|---|---|
