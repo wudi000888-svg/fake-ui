@@ -10,6 +10,10 @@ def read_asset(path):
     return (ASSETS / path).read_text(encoding="utf-8")
 
 
+def read_action_assets():
+    return "\n".join(path.read_text(encoding="utf-8") for path in (ASSETS / "js" / "actions").glob("*.js"))
+
+
 def test_frontend_v2_modules_exist_and_index_uses_module_entry():
     index = (ROOT / "baseline" / "frontend" / "index.html").read_text(encoding="utf-8")
     assert 'type="module"' in index
@@ -20,12 +24,39 @@ def test_frontend_v2_modules_exist_and_index_uses_module_entry():
         "js/api.js",
         "js/state.js",
         "js/router.js",
+        "js/dom.js",
+        "js/actions/forms.js",
+        "js/actions/handlers.js",
+        "js/actions/admin.js",
+        "js/actions/orders.js",
+        "js/actions/payments.js",
+        "js/actions/users_nodes.js",
         "js/components/layout.js",
+        "js/components/login.js",
+        "js/pages/registry.js",
+        "js/pages/admin/simple.js",
         "css/tokens.css",
         "css/layout.css",
         "css/components.css",
     ]:
         assert (ASSETS / path).exists(), path
+
+
+def test_frontend_v2_main_is_modular_entrypoint():
+    main = read_asset("js/main.js")
+    assert len(main.splitlines()) < 180
+    assert "bindAppActions" in main
+    assert 'app.addEventListener("click"' not in main
+    assert 'app.addEventListener("submit"' not in main
+
+
+def test_frontend_v2_actions_are_split_by_domain():
+    handlers = read_asset("js/actions/handlers.js")
+    assert len(handlers.splitlines()) < 180
+    assert "handleAdminAction" in handlers
+    assert "handleOrderAction" in handlers
+    assert "handlePaymentAction" in handlers
+    assert "handleUserNodeAction" in handlers
 
 
 def test_frontend_v2_removes_legacy_single_file_assets():
@@ -91,7 +122,7 @@ def test_frontend_v2_admin_pages_use_task_cards_and_bottom_sheets():
 
 
 def test_frontend_v2_spa_wires_commercial_actions():
-    main = read_asset("js/main.js")
+    action_source = read_action_assets()
     for endpoint in [
         "/api/orders/create",
         "/api/orders/action",
@@ -104,7 +135,7 @@ def test_frontend_v2_spa_wires_commercial_actions():
         "/api/plans/action",
         "/api/cache/clear",
     ]:
-        assert endpoint in main
+        assert endpoint in action_source
     for action in [
         "checkout-open",
         "checkout-close",
@@ -119,11 +150,11 @@ def test_frontend_v2_spa_wires_commercial_actions():
         "payment-method-action",
         "cache-clear",
     ]:
-        assert action in main
+        assert action in action_source
 
 
 def test_frontend_v2_page_actions_are_wired_in_main_dispatcher():
-    main = read_asset("js/main.js")
+    action_source = read_action_assets()
     pages_dir = ASSETS / "js" / "pages"
     action_pattern = re.compile(r'data-action="([^"]+)"')
     ignored = {"${esc(action)}"}
@@ -132,7 +163,11 @@ def test_frontend_v2_page_actions_are_wired_in_main_dispatcher():
         actions.update(action for action in action_pattern.findall(path.read_text(encoding="utf-8")) if action not in ignored)
 
     for action in sorted(actions):
-        assert f'button.dataset.action === "{action}"' in main or f'action === "{action}"' in main, action
+        assert (
+            f'button.dataset.action === "{action}"' in action_source
+            or f'action === "{action}"' in action_source
+            or f'actionName === "{action}"' in action_source
+        ), action
 
 
 def test_frontend_v2_layout_prevents_dashboard_overflow():

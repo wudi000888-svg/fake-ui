@@ -3,14 +3,19 @@ from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parents[1] / "baseline" / "frontend" / "assets"
 MAIN_JS = ASSETS / "js" / "main.js"
+ACTION_HANDLERS_JS = ASSETS / "js" / "actions" / "handlers.js"
 USER_ORDERS_JS = ASSETS / "js" / "pages" / "user" / "orders.js"
 USER_PLANS_JS = ASSETS / "js" / "pages" / "user" / "plans.js"
 ADMIN_SETTINGS_JS = ASSETS / "js" / "pages" / "admin" / "settings.js"
 COMPONENTS_CSS = ASSETS / "css" / "components.css"
 
 
+def read_action_assets():
+    return "\n".join(path.read_text(encoding="utf-8") for path in (ASSETS / "js" / "actions").glob("*.js"))
+
+
 def test_frontend_exposes_crypto_payment_user_flow():
-    main = MAIN_JS.read_text(encoding="utf-8")
+    actions = read_action_assets()
     orders = USER_ORDERS_JS.read_text(encoding="utf-8")
     plans = USER_PLANS_JS.read_text(encoding="utf-8")
 
@@ -18,9 +23,9 @@ def test_frontend_exposes_crypto_payment_user_flow():
     assert 'data-action="payment-start"' in orders
     assert 'data-action="payment-refresh"' in orders
     assert 'data-action="payment-submit-txid"' in orders
-    assert "/api/payments/create" in main
-    assert "/api/payments/submit-tx" in main
-    assert "/api/payments/refresh" in main
+    assert "/api/payments/create" in actions
+    assert "/api/payments/submit-tx" in actions
+    assert "/api/payments/refresh" in actions
     assert "/payqr/" in orders
     assert "api.qrserver.com" not in orders
     assert "交易哈希 / TXID（可选）" in orders
@@ -29,7 +34,7 @@ def test_frontend_exposes_crypto_payment_user_flow():
     assert "需要补 TXID" in orders
     assert "checkout-panel" in plans
     assert "data-payment-method-for-plan" in plans
-    assert "/api/orders/create" in main
+    assert "/api/orders/create" in actions
 
 
 def test_frontend_cancelled_orders_do_not_show_active_payment_actions():
@@ -63,13 +68,13 @@ def test_frontend_payment_records_hide_cancelled_and_final_orders():
 
 def test_frontend_exposes_crypto_payment_admin_settings():
     source = ADMIN_SETTINGS_JS.read_text(encoding="utf-8")
-    main = MAIN_JS.read_text(encoding="utf-8")
+    actions = read_action_assets()
 
     assert "function paymentMethodsSettings" in source
     assert 'data-form="payment-method-save"' in source
     assert 'data-action="payment-method-action"' in source
-    assert "/api/payment-methods/save" in main
-    assert "/api/payment-methods/action" in main
+    assert "/api/payment-methods/save" in actions
+    assert "/api/payment-methods/action" in actions
     assert "支付类型" in source
     assert "RPC URL（EVM）" not in source
     assert "Token 合约（USDT / USDC）" not in source
