@@ -30,6 +30,8 @@ MODULES_TO_RELOAD = [
     "subscription_guard",
     "app_urls",
     "link_settings",
+    "user_stats_service",
+    "user_admin",
     "node_display",
     "node_mutations",
     "operations_service",
