@@ -58,9 +58,20 @@ MODULES_TO_RELOAD = [
 def app_modules(tmp_path, monkeypatch):
     panel_dir = tmp_path / "panel"
     panel_dir.mkdir()
+    hy2_dir = tmp_path / "hysteria2"
+    hy2_dir.mkdir()
+    hy2_env_file = hy2_dir / ".env"
+    hy2_config_file = hy2_dir / "server.yaml"
+    hy2_env_file.write_text("HY_DOMAIN=hy.example.test\nHY_PASSWORD=secret\nHY_PORT=443\n", encoding="utf-8")
+    hy2_config_file.write_text(
+        "listen: :443\noutbounds:\n  - name: direct\n    type: direct\n",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("PANEL_DIR", str(panel_dir))
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.test")
     monkeypatch.setenv("ENFORCE_USERS_CMD", "python noop.py")
+    monkeypatch.setenv("HY2_ENV_FILE", str(hy2_env_file))
+    monkeypatch.setenv("HY2_CONFIG_FILE", str(hy2_config_file))
 
     for name in MODULES_TO_RELOAD:
         if name in sys.modules:
