@@ -27,6 +27,9 @@ MODULES_TO_RELOAD = [
     "payment_service",
     "registration_store",
     "public_settings",
+    "email_settings",
+    "email_service",
+    "password_reset_service",
     "admin_profile",
     "audit_log",
     "backup_manager",
@@ -151,19 +154,131 @@ def test_enabled_public_registration_creates_no_plan_user_and_logs_in(app_module
     )
 
     assert status == 200
-    assert payload["session"]["username"] == "newbie"
-    assert payload["session"]["role"] == "user"
-    assert payload["token"]
+    assert "session" not in payload
+    assert "token" not in payload
+    assert payload["message"] == "registration complete; please log in"
     user = user_store.get_user("newbie")
     assert user["plan_id"] == ""
     assert user["node_groups"] == []
     assert user["node_ids"] == []
     assert user["quota_bytes"] == 0
     assert user["expires_at"] == ""
+    assert user["email"] == "n@example.test"
 
     status, session_payload = api.handle_get("/api/session", {"u": "newbie", "r": "user", "role": "user", "csrf": "csrf"})
     assert status == 200
     assert session_payload["session"]["username"] == "newbie"
+
+
+def test_admin_email_settings_do_not_return_smtp_password(app_modules, monkeypatch):
+    api = app_modules["api"]
+    monkeypatch.setattr(app_modules["dashboard_service"].xray_panel, "current_status", lambda: {"proxy": ""})
+    monkeypatch.setattr(app_modules["dashboard_service"].hy2_panel, "hy2_status", lambda: {})
+
+    status, payload = api.handle_post(
+        "/api/email-settings",
+        {
+            "password_reset_enabled": True,
+            "email_provider": "smtp",
+            "smtp_host": "smtp.example.test",
+            "smtp_port": "587",
+            "smtp_username": "mailer",
+            "smtp_password": "smtp-secret",
+            "smtp_from": "noreply@example.test",
+            "smtp_tls": True,
+        },
+        admin_session(app_modules),
+    )
+
+    assert status == 200
+    assert payload["email_settings"]["smtp_configured"] is True
+    assert "smtp_password" not in json.dumps(payload)
+
+    status, dashboard = api.handle_get("/api/dashboard", admin_session(app_modules))
+    assert status == 200
+    assert dashboard["data"]["public_settings"]["password_reset_enabled"] is True
+    assert dashboard["data"]["email_settings"]["smtp_host"] == "smtp.example.test"
+    assert "smtp_password" not in json.dumps(dashboard)
+
+
+def test_user_can_update_own_email(app_modules):
+    api = app_modules["api"]
+    user_admin = app_modules["user_admin"]
+    user_store = app_modules["user_store"]
+
+    user_admin.create_airport_user("mailuser", "30", panel_password_input="password123", traffic_gb_input="1")
+
+    status, payload = api.handle_post(
+        "/api/self/email",
+        {"email": "mailuser@example.test"},
+        {"u": "mailuser", "r": "user", "role": "user"},
+    )
+
+    assert status == 200
+    assert payload["profile"]["email"] == "mailuser@example.test"
+    assert user_store.get_user("mailuser")["email"] == "mailuser@example.test"
+
+
+def test_password_reset_email_code_flow(app_modules, monkeypatch):
+    api = app_modules["api"]
+    ops = app_modules["operations_service"]
+    user_admin = app_modules["user_admin"]
+    auth_store = app_modules["auth_store"]
+    registration_store = app_modules["registration_store"]
+    password_reset_service = app_modules["password_reset_service"]
+    sent = []
+
+    user_admin.create_airport_user("resetme", "30", panel_password_input="oldpass123", traffic_gb_input="1")
+    user_admin.update_user_email("resetme", "resetme@example.test")
+    ops.update_public_settings({"password_reset_enabled": True})
+    ops.update_email_settings(
+        {
+            "email_provider": "smtp",
+            "smtp_host": "smtp.example.test",
+            "smtp_password": "smtp-secret",
+            "smtp_from": "noreply@example.test",
+        }
+    )
+    monkeypatch.setattr(password_reset_service, "generate_code", lambda: "123456")
+    monkeypatch.setattr(password_reset_service.email_service, "send_verification_code", lambda email, code: sent.append((email, code)))
+
+    status, payload = api.handle_post("/api/password-reset/send-code", {"username": "resetme"}, None)
+
+    assert status == 200
+    assert payload["message"] == "verification code sent"
+    assert sent == [("resetme@example.test", "123456")]
+    reset = registration_store.list_resets()[0]
+    assert reset["email"] == "resetme@example.test"
+    assert reset["code_hash"] != "123456"
+    assert "code" not in reset
+
+    status, bad = api.handle_post(
+        "/api/password-reset/confirm",
+        {"username": "resetme", "code": "000000", "new_password": "newpass123"},
+        None,
+    )
+    assert status == 400
+    assert bad["ok"] is False
+    assert registration_store.list_resets()[0]["attempts"] == 1
+
+    status, payload = api.handle_post(
+        "/api/password-reset/confirm",
+        {"username": "resetme", "code": "123456", "new_password": "newpass123"},
+        None,
+    )
+    assert status == 200
+    assert payload["message"] == "password reset complete"
+    assert auth_store.authenticate_user("resetme", "newpass123") == "user"
+    assert registration_store.list_resets()[0]["status"] == "consumed"
+
+
+def test_password_reset_disabled_blocks_request(app_modules):
+    api = app_modules["api"]
+
+    status, payload = api.handle_post("/api/password-reset/send-code", {"username": "resetme"}, None)
+
+    assert status == 403
+    assert payload["ok"] is False
 
 
 def test_user_create_and_node_assignment(app_modules):

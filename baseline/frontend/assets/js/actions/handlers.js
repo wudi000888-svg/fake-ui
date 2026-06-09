@@ -44,12 +44,29 @@ export function bindAppActions(app, { refresh, render }) {
       }
       if (form.dataset.form === "register") {
         const result = await post("/api/register", data);
-        state.session = result.session;
-        state.shell = await api("/api/app-shell");
-        state.publicSettings = state.shell.public_settings || state.publicSettings;
-        await refresh();
-        setNotice("注册成功", "success");
+        navigate("login");
+        setNotice(result.message || "注册成功，请登录", "success");
         await render();
+        return;
+      }
+      if (form.dataset.form === "password-reset-send") {
+        const result = await post("/api/password-reset/send-code", data);
+        setNotice(result.message || "验证码已发送", "success");
+        await render();
+        return;
+      }
+      if (form.dataset.form === "password-reset-confirm") {
+        const result = await post("/api/password-reset/confirm", data);
+        navigate("login");
+        setNotice(result.message || "密码已重置，请登录", "success");
+        await render();
+        return;
+      }
+      if (form.dataset.form === "self-email") {
+        await runAction(async () => {
+          await post("/api/self/email", data);
+          return "邮箱已保存";
+        });
         return;
       }
       if (await handleOrderForm(form, data, context)) return;

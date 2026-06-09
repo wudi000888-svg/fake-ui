@@ -11,6 +11,7 @@ from dashboard_service import (
     visible_nodes_for_user,
 )
 from node_exit_service import apply_node_exit_info
+import email_settings
 import public_settings
 
 
@@ -22,6 +23,14 @@ def update_public_settings(data):
     return public_settings.update(data)
 
 
+def get_email_settings():
+    return email_settings.public_view()
+
+
+def update_email_settings(data):
+    return email_settings.update(data)
+
+
 __all__ = [
     "admin_links",
     "apply_node_exit_info",
@@ -30,7 +39,9 @@ __all__ = [
     "list_users",
     "public_session",
     "get_public_settings",
+    "get_email_settings",
     "update_public_settings",
+    "update_email_settings",
     "update_settings",
     "user_links",
     "user_metrics",

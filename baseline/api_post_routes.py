@@ -42,6 +42,14 @@ def handle_post(path, data, session):
             return err
         return ok(public_settings=ops.update_public_settings(data))
 
+    if clean == "/api/email-settings":
+        if (err := require_admin(session)):
+            return err
+        if "password_reset_enabled" in (data or {}):
+            ops.update_public_settings({"password_reset_enabled": data.get("password_reset_enabled")})
+        email_public = ops.update_email_settings(data)
+        return ok(email_settings=email_public, public_settings=ops.get_public_settings())
+
     if not is_admin(session):
         if clean in {"/api/orders/create", "/api/orders/action"}:
             return handle_user_post(clean, data, session)

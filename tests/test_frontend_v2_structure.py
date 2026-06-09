@@ -57,12 +57,33 @@ def test_frontend_exposes_self_registration_and_admin_toggle():
     settings = read_asset("js/pages/admin/settings.js")
     admin_actions = read_asset("js/actions/admin.js")
 
+    assert 'href="/register"' in login
     assert 'data-form="register"' in login
     assert 'state.publicSettings?.registration_enabled' in login
     assert 'post("/api/register"' in handlers
+    assert 'navigate("login")' in handlers
     assert 'name="registration_enabled"' in settings
     assert 'data-form="public-settings-save"' in settings
     assert 'post("/api/public-settings"' in admin_actions
+
+
+def test_frontend_exposes_password_reset_email_and_logout_controls():
+    login = read_asset("js/components/login.js")
+    handlers = read_asset("js/actions/handlers.js")
+    settings = read_asset("js/pages/admin/settings.js")
+    account = read_asset("js/pages/user/account.js")
+    layout = read_asset("js/components/layout.js")
+
+    assert 'href="/forgot"' in login
+    assert 'data-form="password-reset-send"' in login
+    assert 'data-form="password-reset-confirm"' in login
+    assert 'post("/api/password-reset/send-code"' in handlers
+    assert 'post("/api/password-reset/confirm"' in handlers
+    assert 'data-form="self-email"' in account
+    assert 'post("/api/self/email"' in handlers
+    assert 'data-form="email-settings-save"' in settings
+    assert 'post("/api/email-settings"' in read_asset("js/actions/admin.js")
+    assert 'data-action="logout"' in layout
 
 
 def test_frontend_v2_actions_are_split_by_domain():

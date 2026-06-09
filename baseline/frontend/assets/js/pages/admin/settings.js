@@ -35,6 +35,7 @@ function paymentMethodsSettings(methods) {
 export function renderAdminSettings(data = {}) {
   const methods = data.payment_methods || [];
   const publicSettings = data.public_settings || {};
+  const emailSettings = data.email_settings || {};
   return `
     <section class="screen stack">
       <div class="screen-head">
@@ -55,6 +56,35 @@ export function renderAdminSettings(data = {}) {
             </select>
           </label>
           <button class="secondary" type="submit">保存公开设置</button>
+        </form>
+      </article>
+      <article class="admin-card">
+        <div><strong>找回密码</strong><span>${publicSettings.password_reset_enabled ? "已开启" : "已关闭"} · SMTP ${publicSettings.smtp_configured ? "已配置" : "未配置"}</span></div>
+        <form class="form-grid" data-form="email-settings-save">
+          <label>允许邮箱找回
+            <select name="password_reset_enabled">
+              <option value="false" ${publicSettings.password_reset_enabled ? "" : "selected"}>关闭</option>
+              <option value="true" ${publicSettings.password_reset_enabled ? "selected" : ""}>开启</option>
+            </select>
+          </label>
+          <label>服务商
+            <select name="email_provider">
+              <option value="" ${emailSettings.email_provider ? "" : "selected"}>未选择</option>
+              <option value="smtp" ${emailSettings.email_provider === "smtp" ? "selected" : ""}>SMTP</option>
+            </select>
+          </label>
+          <label>SMTP 主机<input name="smtp_host" value="${esc(emailSettings.smtp_host || "")}"></label>
+          <label>SMTP 端口<input name="smtp_port" inputmode="numeric" value="${esc(emailSettings.smtp_port || "587")}"></label>
+          <label>SMTP 用户<input name="smtp_username" value="${esc(emailSettings.smtp_username || "")}"></label>
+          <label>SMTP 密码<input name="smtp_password" type="password" autocomplete="new-password" placeholder="${publicSettings.smtp_configured ? "留空则不修改" : ""}"></label>
+          <label>发件邮箱<input name="smtp_from" type="email" value="${esc(emailSettings.smtp_from || "")}"></label>
+          <label>TLS
+            <select name="smtp_tls">
+              <option value="true" ${emailSettings.smtp_tls === false ? "" : "selected"}>开启</option>
+              <option value="false" ${emailSettings.smtp_tls === false ? "selected" : ""}>关闭</option>
+            </select>
+          </label>
+          <button class="secondary" type="submit">保存邮箱设置</button>
         </form>
       </article>
       <article class="admin-card payment-method-form" hidden>

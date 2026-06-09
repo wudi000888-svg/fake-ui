@@ -207,6 +207,7 @@ def create_self_registered_user(username, password_hash, email="", note="", oper
         "sub_token": sub_token,
         "expires_at": "",
         "created_at": user_store.now_utc().isoformat(),
+        "email": str(email or "").strip(),
         "note": note or f"self registration {email}".strip(),
         "plan_id": "",
         "node_groups": [],
@@ -222,6 +223,23 @@ def create_self_registered_user(username, password_hash, email="", note="", oper
     user_store.save_users(data)
     audit_log.write(operator, "user.self_register", username, {"email": email})
     return {"username": username, "sub_token": sub_token}
+
+
+def update_user_email(username, email, operator=None):
+    username = str(username or "").strip()
+    email = str(email or "").strip()
+    if email and ("@" not in email or len(email) > 254):
+        raise RuntimeError("邮箱格式不正确。")
+
+    data = user_store.load_users()
+    users = data.setdefault("users", {})
+    if username not in users:
+        raise RuntimeError("用户不存在。")
+
+    users[username]["email"] = email
+    user_store.save_users(data)
+    audit_log.write(operator or username, "user.email_update", username)
+    return {"username": username, "email": email}
 
 
 def airport_user_action(username, action, days="30", quota_gb="", plan_id="", operator="admin", node_ids=None):

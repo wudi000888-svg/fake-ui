@@ -57,6 +57,7 @@ export function layout(content) {
             <span>${esc(username || role)}</span>
             <span>v${esc(version)}</span>
           </div>
+          <button class="secondary" data-action="logout" type="button">退出</button>
         </div>
       </aside>
       <div class="workspace-v2">
@@ -66,6 +67,7 @@ export function layout(content) {
             <span>单机多出口代理编排系统</span>
           </div>
           <div class="identity-chip">${esc(username || role)}</div>
+          <button class="secondary" data-action="logout" type="button">退出</button>
         </header>
         <main class="main-v2">${notice()}${content}</main>
       </div>

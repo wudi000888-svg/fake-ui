@@ -90,6 +90,21 @@ export async function handleAdminForm(form, data, app, { runAction }) {
     });
     return true;
   }
+  if (form.dataset.form === "email-settings-save") {
+    await runAction(async () => {
+      const out = await post("/api/email-settings", {
+        ...data,
+        password_reset_enabled: data.password_reset_enabled === "true",
+        smtp_tls: data.smtp_tls !== "false",
+      });
+      state.data.email_settings = out.email_settings || {};
+      state.data.public_settings = out.public_settings || {};
+      state.publicSettings = out.public_settings || {};
+      if (state.shell) state.shell.public_settings = state.publicSettings;
+      return "邮箱设置已保存";
+    });
+    return true;
+  }
   if (form.dataset.form === "backup-import") {
     await runAction(async () => {
       const file = form.elements.backup_file?.files?.[0];

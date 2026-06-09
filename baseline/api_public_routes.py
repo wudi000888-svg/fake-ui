@@ -1,6 +1,7 @@
 import audit_log
 import auth_store
 import operations_service as ops
+import password_reset_service
 import registration_store
 import security
 import user_admin
@@ -27,13 +28,38 @@ def handle_public_post(clean, data):
             note=item.get("note", ""),
         )
         audit_log.write(item.get("username", ""), "registration.self_register", item.get("username", ""))
-        token = auth_store.make_session(item.get("username", ""), "user")
-        return ok(registration={k: v for k, v in item.items() if k not in {"password", "password_hash"}}, result=result, session={"username": item.get("username", ""), "role": "user"}, token=token, ttl=SESSION_TTL)
+        return ok(
+            message="registration complete; please log in",
+            registration={k: v for k, v in item.items() if k not in {"password", "password_hash"}},
+            result=result,
+        )
 
     if clean == "/api/password-reset/request":
         item = registration_store.create_password_reset(data.get("username", ""))
         audit_log.write(data.get("username", ""), "password_reset.request", data.get("username", ""), {"token": item.get("token", "")[:10]})
         return ok(reset=item)
+
+    if clean == "/api/password-reset/send-code":
+        try:
+            return ok(**password_reset_service.send_code(data.get("username") or data.get("email") or data.get("identifier", "")))
+        except PermissionError as exc:
+            return api_error(str(exc), 403)
+        except RuntimeError as exc:
+            return api_error(str(exc), 400)
+
+    if clean == "/api/password-reset/confirm":
+        try:
+            return ok(
+                **password_reset_service.confirm(
+                    data.get("username") or data.get("email") or data.get("identifier", ""),
+                    data.get("code", ""),
+                    data.get("new_password", ""),
+                )
+            )
+        except PermissionError as exc:
+            return api_error(str(exc), 403)
+        except RuntimeError as exc:
+            return api_error(str(exc), 400)
 
     if clean == "/api/login":
         username = data.get("username", "").strip()

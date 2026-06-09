@@ -93,6 +93,10 @@ def create_password_reset(username):
     return item
 
 
+def save_password_reset(item):
+    return SQLitePasswordResetsRepository().upsert(item)
+
+
 def list_resets(status=None):
     items = load_data().get("resets", [])
     if status:

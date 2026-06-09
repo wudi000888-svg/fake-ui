@@ -16,10 +16,18 @@ export function renderUserAccount(data = {}, shell = {}) {
       </article>
       <div class="detail-list">
         <div><span>当前套餐</span><strong>${esc(profile.plan_name || "-")}</strong></div>
+        <div><span>邮箱</span><strong>${esc(profile.email || "-")}</strong></div>
         <div><span>到期时间</span><strong>${esc(profile.expires_at || "-")}</strong></div>
         <div><span>已用流量</span><strong>${gb(profile.used_bytes)}</strong></div>
         <div><span>剩余流量</span><strong>${gb(profile.remain_bytes)}</strong></div>
       </div>
+      <article class="mobile-card">
+        <div><strong>邮箱</strong><span>用于找回密码验证码。</span></div>
+        <form class="form-grid" data-form="self-email">
+          <label>邮箱<input name="email" type="email" autocomplete="email" value="${esc(profile.email || "")}"></label>
+          <button class="secondary" type="submit">保存邮箱</button>
+        </form>
+      </article>
       <article class="mobile-card">
         <div><strong>安全建议</strong><span>定期更换面板密码，订阅链接泄露后请联系管理员重置。</span></div>
         <button class="secondary" data-action="refresh" type="button">刷新账号</button>

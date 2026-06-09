@@ -5,6 +5,7 @@ import admin_profile
 import app_urls
 import audit_log
 import backup_manager
+import email_settings
 import hy2_panel
 import links
 import node_catalog
@@ -46,6 +47,7 @@ def user_metrics(username, user):
         "status": user_store.public_status(username, user),
         "plan_id": (user or {}).get("plan_id", ""),
         "plan_name": plan.get("name", (user or {}).get("plan_id", "") or "自定义套餐"),
+        "email": (user or {}).get("email", ""),
         "node_groups": (user or {}).get("node_groups", ["default"]),
         "expires_at": expires_at,
         "days_left": days_left,
@@ -187,6 +189,7 @@ def dashboard(session):
                 "audit": audit_log.tail(80),
                 "backups": backup_manager.list_backups(20),
                 "public_settings": public_settings.read(),
+                "email_settings": email_settings.public_view(),
                 "registrations": registration_store.list_registrations(),
                 "password_resets": registration_store.list_resets(),
                 "subscription_access": subscription_guard.tail(120),
