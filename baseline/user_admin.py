@@ -306,10 +306,12 @@ def airport_user_action(username, action, days="30", quota_gb="", plan_id="", op
         )
     elif action == "delete":
         users.pop(username)
+        user_store.delete_user(username)
     else:
         raise RuntimeError("未知操作。")
 
-    user_store.save_users(data)
+    if action != "delete":
+        user_store.save_users(data)
     enforce_users_now()
     if action in ("extend", "set_quota"):
         orders_store.record_order(username, action, plan=plan, amount=(plan or {}).get("price", 0), note=action, operator=operator)

@@ -43,6 +43,11 @@ def save_users(data):
     return data
 
 
+def delete_user(username):
+    store_facade.ensure_sqlite()
+    return SQLiteUsersRepository().delete(str(username or "").strip())
+
+
 def remove_vless_node_uuid(node_id):
     node_id = str(node_id or "").strip()
     if not node_id:

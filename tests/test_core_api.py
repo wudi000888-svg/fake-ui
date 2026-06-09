@@ -302,6 +302,29 @@ def test_user_create_and_node_assignment(app_modules):
     assert any(item["username"] == "alice" for item in payload["users"])
 
 
+def test_admin_can_delete_user_from_sqlite_store(app_modules):
+    api = app_modules["api"]
+    user_store = app_modules["user_store"]
+
+    status, payload = api.handle_post(
+        "/api/users/create",
+        {"username": "delete_me", "days": "7", "panel_password": "password123", "traffic_gb": "1"},
+        admin_session(app_modules),
+    )
+    assert status == 200
+    assert user_store.get_user("delete_me")
+
+    status, payload = api.handle_post(
+        "/api/users/action",
+        {"username": "delete_me", "action": "delete"},
+        admin_session(app_modules),
+    )
+
+    assert status == 200
+    assert user_store.get_user("delete_me") is None
+    assert not any(item["username"] == "delete_me" for item in payload["users"])
+
+
 def test_admin_can_change_user_plan_and_exact_nodes(app_modules, monkeypatch):
     api = app_modules["api"]
     user_store = app_modules["user_store"]
