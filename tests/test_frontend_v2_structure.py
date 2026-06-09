@@ -62,6 +62,7 @@ def test_frontend_exposes_self_registration_and_admin_toggle():
     assert 'state.publicSettings?.registration_enabled' in login
     assert 'post("/api/register"' in handlers
     assert 'navigate("login")' in handlers
+    assert 'location.href = "/login"' in handlers
     assert 'name="registration_enabled"' in settings
     assert 'data-form="public-settings-save"' in settings
     assert 'post("/api/public-settings"' in admin_actions

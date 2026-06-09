@@ -805,6 +805,36 @@ def test_http_api_post_requires_csrf_for_authenticated_sessions(app_modules, mon
     assert captured["payload"]["ok"] is True
 
 
+def test_http_api_public_register_ignores_stale_session_csrf(app_modules, monkeypatch):
+    import http_api_routes
+    ops = app_modules["operations_service"]
+    user_store = app_modules["user_store"]
+
+    ops.update_public_settings({"registration_enabled": True})
+    captured = {}
+
+    class FakeHandler:
+        path = "/api/register"
+        headers = {"Content-Type": "application/json"}
+        client_address = ("203.0.113.9", 12345)
+
+        def current_session(self):
+            return {"u": "olduser", "r": "user", "role": "user", "csrf": "old-csrf"}
+
+        def read_json_or_form(self):
+            return {"username": "stalecsrf", "password": "password123"}
+
+        def respond_json(self, payload, status):
+            captured["payload"] = payload
+            captured["status"] = status
+
+    http_api_routes.handle_post(FakeHandler())
+
+    assert captured["status"] == 200
+    assert captured["payload"]["message"] == "registration complete; please log in"
+    assert user_store.get_user("stalecsrf")
+
+
 def test_admin_node_qr_requires_admin(app_modules, monkeypatch):
     import http_qr_routes
 

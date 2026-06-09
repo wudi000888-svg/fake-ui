@@ -46,6 +46,7 @@ export function bindAppActions(app, { refresh, render }) {
         const result = await post("/api/register", data);
         navigate("login");
         setNotice(result.message || "注册成功，请登录", "success");
+        location.href = "/login";
         await render();
         return;
       }

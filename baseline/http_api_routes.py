@@ -2,6 +2,14 @@ import api
 import security
 
 
+PUBLIC_POSTS = {
+    "/api/login",
+    "/api/register",
+    "/api/password-reset/send-code",
+    "/api/password-reset/confirm",
+}
+
+
 def handle_get(handler):
     try:
         status, payload = api.handle_get(handler.path, handler.current_session())
@@ -22,7 +30,7 @@ def handle_post(handler):
     try:
         session = handler.current_session()
         csrf_error = None
-        if handler.path != "/api/login":
+        if handler.path not in PUBLIC_POSTS:
             csrf_error = security.csrf_error_for(handler, session)
         if csrf_error is not None:
             status, payload = csrf_error
