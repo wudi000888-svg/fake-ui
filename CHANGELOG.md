@@ -11,6 +11,9 @@
 | 账号 | 登录页与注册页拆分；注册关闭时登录页不显示注册入口，开启时显示注册按钮 |
 | 账号 | 新增管理员可控的邮箱验证码找回密码，支持 SMTP 服务商配置，SMTP 密码不在 API 响应中回显 |
 | 账号 | 用户中心支持补充邮箱，管理员和用户 shell 均提供退出登录按钮 |
+| 账号 | 修复旧 session/CSRF 状态下公开注册被拦截、注册后不跳转和登录后短暂空白的问题 |
+| 用户 | 修复 SQLite-only 数据层中删除用户只写审计但用户记录仍保留的问题 |
+| 套餐 | 修复套餐改名后管理员用户列表仍显示旧套餐名或套餐 ID 的问题 |
 | 部署 | 原生 Nginx 安装配置补齐 HSTS、nosniff、X-Frame-Options、Referrer-Policy 和 Permissions-Policy |
 | 备份 | 备份恢复增加归档大小限制、SQLite integrity check，并将恢复后的数据库文件权限收敛为 `0600` |
 | 文档 | 更新架构文档到当前 SQLite repository、`security.py` 和路由结构 |
