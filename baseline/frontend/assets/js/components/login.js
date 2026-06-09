@@ -1,4 +1,11 @@
 import { state } from "../state.js";
+import { esc } from "./layout.js";
+
+
+function notice() {
+  if (!state.notice) return "";
+  return `<div class="notice ${esc(state.notice.type)}">${esc(state.notice.message)}</div>`;
+}
 
 
 export function loginView() {
@@ -12,6 +19,7 @@ export function loginView() {
   }
   return `
     <section class="login-screen">
+      ${notice()}
       <form class="login-card" data-form="login">
         <div>
           <h1>fake-ui</h1>
@@ -32,6 +40,7 @@ function registerView(registrationEnabled) {
   if (!registrationEnabled) {
     return `
       <section class="login-screen">
+        ${notice()}
         <div class="login-card">
           <div>
             <h1>注册已关闭</h1>
@@ -44,6 +53,7 @@ function registerView(registrationEnabled) {
   }
   return `
     <section class="login-screen">
+      ${notice()}
       <form class="login-card" data-form="register">
         <div>
           <h1>注册账号</h1>
@@ -64,6 +74,7 @@ function forgotView(passwordResetEnabled) {
   if (!passwordResetEnabled) {
     return `
       <section class="login-screen">
+        ${notice()}
         <div class="login-card">
           <div>
             <h1>找回密码已关闭</h1>
@@ -76,6 +87,7 @@ function forgotView(passwordResetEnabled) {
   }
   return `
     <section class="login-screen">
+      ${notice()}
       <form class="login-card" data-form="password-reset-send">
         <div>
           <h1>发送验证码</h1>

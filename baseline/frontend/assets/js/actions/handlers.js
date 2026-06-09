@@ -39,6 +39,7 @@ export function bindAppActions(app, { refresh, render }) {
         state.publicSettings = state.shell.public_settings || state.publicSettings;
         await refresh();
         setNotice("登录成功", "success");
+        location.href = "/";
         await render();
         return;
       }
@@ -46,7 +47,7 @@ export function bindAppActions(app, { refresh, render }) {
         const result = await post("/api/register", data);
         navigate("login");
         setNotice(result.message || "注册成功，请登录", "success");
-        location.href = "/login";
+        location.href = "/login?registered=1";
         await render();
         return;
       }

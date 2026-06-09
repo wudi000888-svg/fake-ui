@@ -56,13 +56,18 @@ def test_frontend_exposes_self_registration_and_admin_toggle():
     handlers = read_asset("js/actions/handlers.js")
     settings = read_asset("js/pages/admin/settings.js")
     admin_actions = read_asset("js/actions/admin.js")
+    main = read_asset("js/main.js")
 
     assert 'href="/register"' in login
     assert 'data-form="register"' in login
     assert 'state.publicSettings?.registration_enabled' in login
     assert 'post("/api/register"' in handlers
     assert 'navigate("login")' in handlers
-    assert 'location.href = "/login"' in handlers
+    assert 'location.href = "/login' in handlers
+    assert 'location.href = "/"' in handlers
+    assert "state.notice" in login
+    assert 'class="notice' in login
+    assert "registered" in main
     assert 'name="registration_enabled"' in settings
     assert 'data-form="public-settings-save"' in settings
     assert 'post("/api/public-settings"' in admin_actions

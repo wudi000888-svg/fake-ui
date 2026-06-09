@@ -28,6 +28,10 @@ export async function render() {
 
 async function boot() {
   try {
+    if (new URLSearchParams(location.search).get("registered") === "1") {
+      setNotice("注册成功，请登录", "success");
+      history.replaceState(null, "", "/login");
+    }
     const publicSettings = await api("/api/public-settings");
     state.publicSettings = publicSettings.public_settings || {};
     const sessionResult = await api("/api/session");
