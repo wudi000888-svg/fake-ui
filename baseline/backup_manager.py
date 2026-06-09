@@ -1,4 +1,5 @@
 import shutil
+import sqlite3
 import tarfile
 from datetime import datetime, timezone
 from io import BytesIO
@@ -20,6 +21,7 @@ BACKUP_FILES = [
 ]
 BACKUP_NAMES = BACKUP_FILES
 REQUIRED_META = "backup.json"
+MAX_RESTORE_BYTES = 128 * 1024 * 1024
 
 
 def now_stamp():
@@ -86,6 +88,8 @@ def _safe_member_name(member):
 
 
 def _extract_backup_files(raw):
+    if len(raw) > MAX_RESTORE_BYTES:
+        raise RuntimeError("backup archive is too large")
     allowed = set(BACKUP_FILES + [REQUIRED_META])
     found_meta = False
     archive_root = ""
@@ -106,12 +110,34 @@ def _extract_backup_files(raw):
                     found_meta = True
                 source = tar.extractfile(member)
                 if source is not None:
-                    files[name] = source.read()
+                    content = source.read(MAX_RESTORE_BYTES + 1)
+                    if len(content) > MAX_RESTORE_BYTES:
+                        raise RuntimeError("backup file is too large")
+                    files[name] = content
     except tarfile.TarError as exc:
         raise RuntimeError("backup archive is invalid") from exc
     if not found_meta:
         raise RuntimeError("backup metadata missing")
     return archive_root, files
+
+
+def _chmod_restored_file(path, name):
+    if name in {"fake-ui.db", "fake-ui.db-wal", "fake-ui.db-shm"}:
+        path.chmod(0o600)
+    elif name.endswith(".json") or name.endswith(".txt") or name.endswith(".log"):
+        path.chmod(0o600)
+
+
+def _check_sqlite_integrity(path):
+    if not path.exists():
+        return
+    try:
+        with sqlite3.connect(path) as conn:
+            result = conn.execute("pragma integrity_check").fetchone()
+    except sqlite3.DatabaseError as exc:
+        raise RuntimeError("backup database integrity check failed") from exc
+    if not result or str(result[0]).lower() != "ok":
+        raise RuntimeError("backup database integrity check failed")
 
 
 def restore_backup_archive(raw, operator="admin"):
@@ -128,9 +154,9 @@ def restore_backup_archive(raw, operator="admin"):
         target = PANEL_DIR / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
-        if name.endswith(".json") or name.endswith(".txt") or name.endswith(".log"):
-            target.chmod(0o600)
+        _chmod_restored_file(target, name)
         restored.append(name)
+    _check_sqlite_integrity(PANEL_DIR / "fake-ui.db")
     marker = BACKUP_DIR / f"imported-{now_stamp()}.tgz"
     marker.write_bytes(raw)
     archive_name = f"{archive_root}.tgz" if archive_root else marker.name

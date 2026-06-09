@@ -9,13 +9,13 @@
 | 面板入口 | `baseline/panel.py`、`baseline/web_handler.py` | 启动 HTTP 服务、基础响应、总分发 |
 | 静态前端 | `baseline/frontend/index.html`、`baseline/frontend/assets/js/`、`baseline/frontend/assets/css/` | 输出模块化前端页面和资源 |
 | 路由层 | `baseline/http_auth_routes.py`、`baseline/http_api_routes.py`、`baseline/http_subscription_routes.py`、`baseline/http_qr_routes.py`、`baseline/http_static_routes.py` | 拆分登录、API、订阅、二维码和静态资源路由 |
-| 权限层 | `baseline/auth_store.py`、`baseline/session_store.py`、`baseline/api_security.py` | 管理员、普通用户、会话校验 |
+| 权限层 | `baseline/auth_store.py`、`baseline/security.py`、`baseline/api_common.py` | 管理员、普通用户、会话校验、CSRF、Cookie、安全响应头 |
 | 用户运营 | `baseline/user_store.py`、`baseline/user_admin.py`、`baseline/plans_store.py`、`baseline/orders_store.py` | 用户、套餐、订单、到期和禁用状态 |
-| 节点目录 | `baseline/node_catalog.py`、`baseline/node_service.py` | VLESS/HY2 节点维护、排序、命名、出口同步 |
+| 节点目录 | `baseline/node_catalog.py`、`baseline/node_mutations.py`、`baseline/node_exit_service.py` | VLESS/HY2 节点维护、排序、命名、出口同步 |
 | 订阅输出 | `baseline/subscription_routes.py`、`baseline/subscription_guard.py`、`baseline/links.py`、`baseline/qr_service.py` | base64、raw、Mihomo、二维码 |
 | Xray 编排 | `baseline/xray_config_builder.py`、`baseline/xray_runtime.py`、`baseline/xray_status_service.py`、`baseline/xray_sync.py` | 配置生成、校验、重启、回滚、状态读取 |
 | Hysteria2 编排 | `baseline/hy2_config_builder.py`、`baseline/hy2_runtime.py`、`baseline/hy2_status_service.py`、`baseline/hy2_sync.py` | H2 配置生成、校验、重启、回滚、状态读取 |
-| 日志和错误 | `baseline/audit_log.py`、`baseline/errors.py`、`baseline/api_helpers.py` | 统一错误、审计日志、JSON 响应 |
+| 日志和响应 | `baseline/audit_log.py`、`baseline/http_utils.py`、`baseline/api_common.py` | 统一错误、审计日志、JSON 响应 |
 
 ## 请求流
 
@@ -24,7 +24,7 @@ flowchart LR
     Browser["浏览器/客户端"] --> Handler["web_handler.py"]
     Handler --> Routes["http_routes.py"]
     Routes --> API["api_* / *_service.py"]
-    API --> Stores["JSON 状态文件"]
+    API --> Stores["SQLite repositories"]
     API --> Xray["xray_* 编排"]
     API --> HY2["hy2_* 编排"]
     Routes --> Sub["subscription_service.py"]

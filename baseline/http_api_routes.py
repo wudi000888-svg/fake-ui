@@ -27,7 +27,11 @@ def handle_post(handler):
         if csrf_error is not None:
             status, payload = csrf_error
         else:
-            status, payload = api.handle_post(handler.path, handler.read_json_or_form(), session)
+            data = handler.read_json_or_form()
+            if handler.path == "/api/login" and isinstance(data, dict):
+                data["_request_remote_ip"] = getattr(handler, "client_address", [""])[0]
+                data["_request_forwarded_for"] = handler.headers.get("X-Forwarded-For", "")
+            status, payload = api.handle_post(handler.path, data, session)
     except Exception as exc:
         status, payload = api.api_error(str(exc), 400)
     handler.respond_json(payload, status)

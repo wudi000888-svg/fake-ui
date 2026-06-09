@@ -1,6 +1,7 @@
 import audit_log
 import auth_store
 import registration_store
+import security
 from api_common import ok
 from panel_config import SESSION_TTL
 
@@ -24,9 +25,21 @@ def handle_public_post(clean, data):
 
     if clean == "/api/login":
         username = data.get("username", "").strip()
+        key = security.login_key_from_request(
+            username,
+            remote_ip=data.get("_request_remote_ip", ""),
+            forwarded_for=data.get("_request_forwarded_for", ""),
+        )
+        if security.login_limited(key):
+            audit_log.write(username or "anonymous", "auth.login_rate_limited")
+            return 429, {"ok": False, "error": security.login_error_message()}
         role = auth_store.authenticate_user(username, data.get("password", ""))
         if not role:
+            security.record_login_failure(key)
+            audit_log.write(username or "anonymous", "auth.login_failed")
             return 401, {"ok": False, "error": "invalid username or password"}
+        security.clear_login_failures(key)
+        audit_log.write(username, "auth.login_success")
         token = auth_store.make_session(username, role)
         return ok(session={"username": username, "role": role}, token=token, ttl=SESSION_TTL)
 

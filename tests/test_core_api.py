@@ -591,6 +591,28 @@ def test_login_rate_limit_tracks_failures(app_modules):
     assert security.login_limited(key, now=1000) is False
 
 
+def test_api_login_uses_rate_limit_and_audit(app_modules, monkeypatch):
+    import api
+    import audit_log
+    import security
+
+    monkeypatch.setattr(security, "login_key_from_request", lambda username, remote_ip="", forwarded_for="": "198.51.100.7:admin")
+
+    for _ in range(security.LOGIN_MAX_ATTEMPTS):
+        status, payload = api.handle_post("/api/login", {"username": "admin", "password": "wrong"}, None)
+        assert status == 401
+        assert payload["ok"] is False
+
+    status, payload = api.handle_post("/api/login", {"username": "admin", "password": "adminpass"}, None)
+    assert status == 429
+    assert payload["ok"] is False
+    assert "too many" in payload["error"].lower()
+
+    events = audit_log.tail(20)
+    assert any(item["action"] == "auth.login_failed" for item in events)
+    assert any(item["action"] == "auth.login_rate_limited" for item in events)
+
+
 def test_http_api_post_requires_csrf_for_authenticated_sessions(app_modules, monkeypatch):
     import http_api_routes
 
@@ -623,6 +645,54 @@ def test_http_api_post_requires_csrf_for_authenticated_sessions(app_modules, mon
     http_api_routes.handle_post(FakeHandler("csrf-token"))
     assert captured["status"] == 200
     assert captured["payload"]["ok"] is True
+
+
+def test_admin_node_qr_requires_admin(app_modules, monkeypatch):
+    import http_qr_routes
+
+    monkeypatch.setattr(http_qr_routes, "build_admin_node_link", lambda kind, node_id="": f"vless://{kind}/{node_id}")
+    monkeypatch.setattr(http_qr_routes, "qr_png_for_link", lambda link: b"\x89PNG\r\n\x1a\nqr")
+
+    class Handler:
+        path = "/qr/vless"
+        status = None
+        body = None
+        content_type = None
+
+        def __init__(self, username="", role=""):
+            self.username = username
+            self.role = role
+
+        def current_role(self):
+            return self.role
+
+        def current_username(self):
+            return self.username
+
+        def forbidden(self):
+            self.status = 403
+
+        def respond_bytes(self, body, content_type):
+            self.status = 200
+            self.body = body
+            self.content_type = content_type
+
+        def respond(self, body, status=200):
+            self.status = status
+            self.body = body
+
+    anonymous = Handler()
+    http_qr_routes.handle_admin_node_qr(anonymous, "", "")
+    assert anonymous.status == 403
+
+    viewer = Handler("viewer", "user")
+    http_qr_routes.handle_admin_node_qr(viewer, "viewer", "user")
+    assert viewer.status == 403
+
+    admin = Handler("admin", "admin")
+    http_qr_routes.handle_admin_node_qr(admin, "admin", "admin")
+    assert admin.status == 200
+    assert admin.content_type == "image/png"
 
 
 def test_admin_can_manage_plans(app_modules):
@@ -854,3 +924,34 @@ def test_backup_export_and_restore_round_trip(app_modules):
     )
     assert status == 200
     assert sync_calls
+
+
+def test_registration_password_is_not_stored_in_plaintext(app_modules):
+    import registration_store
+    import store_facade
+    import user_admin
+
+    store_facade.ensure_sqlite()
+    submitted = "secret-pass-123"
+    request = registration_store.create_registration("charlie", submitted, "charlie@example.test", "starter", "")
+    stored = registration_store.get_registration(request["token"])
+
+    assert "password" not in request
+    assert stored.get("password") != submitted
+    assert stored.get("password_hash", {}).get("alg") == "pbkdf2_sha256"
+
+    result = user_admin.approve_registration(request["token"], operator="admin")
+    assert result["username"] == "charlie"
+    assert "panel_password" not in result
+
+
+def test_restore_backup_sets_database_permissions_and_checks_integrity(app_modules):
+    import backup_manager
+    import os
+
+    backup = backup_manager.create_backup("permissions")
+    raw = backup_manager.read_backup_bytes(backup["name"])
+    backup_manager.restore_backup_archive(raw, operator="admin")
+
+    db_path = backup_manager.PANEL_DIR / "fake-ui.db"
+    assert oct(os.stat(db_path).st_mode & 0o777) == "0o600"

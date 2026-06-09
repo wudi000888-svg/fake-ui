@@ -2,6 +2,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import store_facade
+import auth_store
 from repositories.sqlite_registrations import SQLitePasswordResetsRepository, SQLiteRegistrationsRepository
 
 
@@ -34,6 +35,7 @@ def save_data(data):
 
 
 def create_registration(username, password, email="", plan_id="", note=""):
+    store_facade.ensure_sqlite()
     username = username.strip()
     if not username:
         raise RuntimeError("username is required")
@@ -45,7 +47,7 @@ def create_registration(username, password, email="", plan_id="", note=""):
     item = {
         "token": token,
         "username": username,
-        "password": password,
+        "password_hash": auth_store.make_password_hash(password),
         "email": email.strip(),
         "plan_id": plan_id.strip(),
         "note": note,

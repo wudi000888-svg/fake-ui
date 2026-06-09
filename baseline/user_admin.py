@@ -78,7 +78,17 @@ def get_hy2_user_stat_snapshot(username, user=None):
     return user_stats_service.get_hy2_user_stat_snapshot(username, user)
 
 
-def create_airport_user(username, days, note="", panel_password_input="", traffic_gb_input="0", plan_id="", operator="admin"):
+def create_airport_user(
+    username,
+    days,
+    note="",
+    panel_password_input="",
+    traffic_gb_input="0",
+    plan_id="",
+    operator="admin",
+    panel_password_hash=None,
+    reveal_password=True,
+):
     username = username.strip()
 
     if not username:
@@ -103,12 +113,17 @@ def create_airport_user(username, days, note="", panel_password_input="", traffi
         raise RuntimeError("用户已存在。")
 
     panel_password_input = panel_password_input.strip()
-    if panel_password_input:
+    if panel_password_hash:
+        panel_password = ""
+        stored_panel_password = panel_password_hash
+    elif panel_password_input:
         if len(panel_password_input) < 8:
             raise RuntimeError("用户登录密码至少 8 位。")
         panel_password = panel_password_input
+        stored_panel_password = make_password_hash(panel_password)
     else:
         panel_password = secrets.token_urlsafe(12)
+        stored_panel_password = make_password_hash(panel_password)
 
     sub_token = secrets.token_hex(24)
     vless_uuid = str(uuid.uuid4())
@@ -121,7 +136,7 @@ def create_airport_user(username, days, note="", panel_password_input="", traffi
     users[username] = {
         "enabled": True,
         "role": "user",
-        "panel_password": make_password_hash(panel_password),
+        "panel_password": stored_panel_password,
         "vless_uuid": vless_uuid,
         "vless_node_uuids": vless_node_uuids,
         "sub_token": sub_token,
@@ -153,9 +168,8 @@ def create_airport_user(username, days, note="", panel_password_input="", traffi
         password_generated=True,
     )
 
-    return {
+    result = {
         "username": username,
-        "panel_password": panel_password,
         "sub_token": sub_token,
         "expires_at": users[username]["expires_at"],
         "quota_bytes": quota_bytes,
@@ -164,6 +178,9 @@ def create_airport_user(username, days, note="", panel_password_input="", traffi
         "plan_id": users[username].get("plan_id", ""),
         "node_groups": users[username].get("node_groups", []),
     }
+    if reveal_password:
+        result["panel_password"] = panel_password
+    return result
 
 
 def airport_user_action(username, action, days="30", quota_gb="", plan_id="", operator="admin", node_ids=None):
@@ -336,7 +353,7 @@ def reset_user_subscription(username, operator="admin"):
     return user["sub_token"]
 
 
-def create_or_renew_from_plan(username, plan_id, password="", note="", operator="admin"):
+def create_or_renew_from_plan(username, plan_id, password="", note="", operator="admin", password_hash=None, reveal_password=True):
     plan = plans_store.get_plan(plan_id)
     if not plan:
         raise RuntimeError("plan not found")
@@ -352,6 +369,8 @@ def create_or_renew_from_plan(username, plan_id, password="", note="", operator=
         traffic_gb_input=plan.get("traffic_gb", 0),
         plan_id=plan_id,
         operator=operator,
+        panel_password_hash=password_hash,
+        reveal_password=reveal_password,
     )
     return {"mode": "create", **result}
 
@@ -428,8 +447,10 @@ def approve_registration(token, operator="admin"):
         item.get("username", ""),
         item.get("plan_id", "") or "starter",
         password=item.get("password", ""),
+        password_hash=item.get("password_hash"),
         note=item.get("note", "registration"),
         operator=operator,
+        reveal_password=bool(item.get("password")),
     )
     registration_store.update_registration(token, status="approved", approved_at=user_store.now_utc().isoformat(), approved_by=operator)
     audit_log.write(operator, "registration.approve", item.get("username", ""), {"token": token[:10]})

@@ -60,7 +60,16 @@ def csrf_token_for_session(session):
 def login_key(handler, username):
     forwarded = handler.headers.get("X-Forwarded-For", "")
     ip = forwarded.split(",", 1)[0].strip() or getattr(handler, "client_address", [""])[0]
-    return f"{ip}:{username.lower()}"
+    return login_key_from_request(username, remote_ip=getattr(handler, "client_address", [""])[0], forwarded_for=forwarded)
+
+
+def login_key_from_request(username, remote_ip="", forwarded_for=""):
+    ip = str(forwarded_for or "").split(",", 1)[0].strip() or str(remote_ip or "").strip()
+    return f"{ip}:{str(username or '').lower()}"
+
+
+def login_error_message():
+    return "too many login attempts; please try again later"
 
 
 def login_limited(key, now=None):

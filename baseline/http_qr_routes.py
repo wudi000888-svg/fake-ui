@@ -35,6 +35,9 @@ def handle_user_node_qr(handler):
 
 def handle_admin_node_qr(handler, username, role):
     try:
+        if role != "admin":
+            handler.forbidden()
+            return
         parts = handler.path.split("?", 1)[0].rstrip("/").strip("/").split("/")
         kind = parts[1] if len(parts) > 1 else ""
         node_id = parts[2] if len(parts) > 2 else ""

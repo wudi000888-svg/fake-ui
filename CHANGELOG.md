@@ -1,5 +1,16 @@
 # 更新日志
 
+## v2.1.2
+
+| 类型 | 内容 |
+| --- | --- |
+| 安全 | 修复 `/qr/` 管理员节点二维码未鉴权问题，非管理员无法生成管理员订阅节点二维码 |
+| 安全 | `/api/login` 统一使用登录限速和审计，避免绕过页面登录保护 |
+| 安全 | 注册申请不再把用户密码明文写入 SQLite，审批时使用已保存的 PBKDF2 hash 创建用户 |
+| 部署 | 原生 Nginx 安装配置补齐 HSTS、nosniff、X-Frame-Options、Referrer-Policy 和 Permissions-Policy |
+| 备份 | 备份恢复增加归档大小限制、SQLite integrity check，并将恢复后的数据库文件权限收敛为 `0600` |
+| 文档 | 更新架构文档到当前 SQLite repository、`security.py` 和路由结构 |
+
 ## v2.1.1
 
 | 类型 | 内容 |
