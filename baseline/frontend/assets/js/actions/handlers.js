@@ -38,8 +38,8 @@ export function bindAppActions(app, { refresh, render }) {
         state.shell = await api("/api/app-shell");
         state.publicSettings = state.shell.public_settings || state.publicSettings;
         await refresh();
+        navigate("dashboard");
         setNotice("登录成功", "success");
-        location.href = "/";
         await render();
         return;
       }

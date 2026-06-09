@@ -64,7 +64,8 @@ def test_frontend_exposes_self_registration_and_admin_toggle():
     assert 'post("/api/register"' in handlers
     assert 'navigate("login")' in handlers
     assert 'location.href = "/login' in handlers
-    assert 'location.href = "/"' in handlers
+    assert 'navigate("dashboard")' in handlers
+    assert 'location.href = "/"' not in handlers
     assert "state.notice" in login
     assert 'class="notice' in login
     assert "registered" in main
