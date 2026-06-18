@@ -19,15 +19,15 @@ def test_install_script_checks_v2_module_entry_and_sets_version():
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     routes = (ROOT / "baseline" / "api_v2_routes.py").read_text(encoding="utf-8")
 
-    assert "FAKE_UI_VERSION=2.3.0" in script
-    assert "FAKE_UI_VERSION: ${FAKE_UI_VERSION:-2.3.0}" in compose
+    assert "FAKE_UI_VERSION=2.3.1" in script
+    assert "FAKE_UI_VERSION: ${FAKE_UI_VERSION:-2.3.1}" in compose
     assert "FAKE_UI_STORE" not in script
     assert "FAKE_UI_STORE" not in compose
     assert "migrate-json-to-sqlite.py" not in script
     assert "migrate-json-to-sqlite.py" not in deploy
     assert "export-sqlite-to-json.py" not in script
     assert "export-sqlite-to-json.py" not in deploy
-    assert '"FAKE_UI_VERSION": "2.3.0"' in deploy
+    assert '"FAKE_UI_VERSION": "2.3.1"' in deploy
     assert "/assets/js/main.js" in script
     assert "/assets/app.js" not in script
     assert "/assets/app.js" not in deploy
@@ -44,6 +44,18 @@ def test_default_runtime_images_are_pinned_not_latest():
     assert "nginx:1.27-alpine" in script
     assert ":latest" not in script
     assert ":latest" not in compose
+
+
+def test_docker_dns_defaults_avoid_polluted_domestic_resolvers():
+    script = (ROOT / "scripts" / "install-fresh-vps.sh").read_text(encoding="utf-8")
+
+    assert 'cp /etc/docker/daemon.json "/etc/docker/daemon.json.bak.$(date +%Y%m%d%H%M%S)"' in script
+    assert "&& ! grep -q '\"dns\"' /etc/docker/daemon.json" not in script
+    assert '"dns": ["1.1.1.1", "8.8.8.8", "9.9.9.9", "208.67.222.222"]' in script
+    assert "183.60.83.19" not in script
+    assert "183.60.82.98" not in script
+    assert "223.5.5.5" not in script
+    assert "119.29.29.29" not in script
 
 
 def test_windows_deploy_refuses_dirty_worktree_by_default():

@@ -20,6 +20,7 @@ This file tracks public-safe development direction. It intentionally avoids live
 | v2.0.2 | Upgrade and install polish | `UPGRADE.md`, `scripts/upgrade.sh`, stronger installer preflight report. |
 | v2.1.0 | Node orchestration | Exit quality checks, batch node refresh, per-user node visibility UX. |
 | v2.2.0 | Product experience | Dashboard polish, clearer plan/order states, onboarding hints. |
+| v2.3.1 | Shipped | Docker container DNS hotfix for polluted default resolvers. |
 | v2.3.0 | Shipped | Account password changes, responsive drawer navigation, collapsible desktop sidebar. |
 | v2.4.0 | Operations | Scheduled backups, restore command, upgrade rollback helper. |
 | v3.0.0 | Expansion | Optional multi-server control plane and advanced wallet automation. |

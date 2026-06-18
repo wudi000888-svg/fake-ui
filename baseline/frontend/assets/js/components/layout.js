@@ -102,7 +102,7 @@ export function layout(content) {
   const secondary = secondaryItems.map(navButton).join("");
   const username = state.shell?.username || state.session?.username || "";
   const role = state.shell?.role === "admin" ? "管理员" : "用户";
-  const version = state.shell?.version || "2.3.0";
+  const version = state.shell?.version || "2.3.1";
   const sidebarCollapsed = isSidebarCollapsed();
   return `
     <div class="app-shell-v2 ${sidebarCollapsed ? "side-nav-collapsed" : ""}">

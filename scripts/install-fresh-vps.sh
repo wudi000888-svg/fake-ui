@@ -348,12 +348,12 @@ EOF
 
 configure_docker_dns() {
   mkdir -p /etc/docker
-  if [[ -f /etc/docker/daemon.json ]] && ! grep -q '"dns"' /etc/docker/daemon.json; then
+  if [[ -f /etc/docker/daemon.json ]]; then
     cp /etc/docker/daemon.json "/etc/docker/daemon.json.bak.$(date +%Y%m%d%H%M%S)"
   fi
   cat >/etc/docker/daemon.json <<'EOF'
 {
-  "dns": ["183.60.83.19", "183.60.82.98", "223.5.5.5", "1.1.1.1", "8.8.8.8"]
+  "dns": ["1.1.1.1", "8.8.8.8", "9.9.9.9", "208.67.222.222"]
 }
 EOF
   if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet docker 2>/dev/null; then
@@ -409,7 +409,7 @@ PANEL_IMAGE=xray-proxy-panel:local
 HYSTERIA_IMAGE=tobyxdd/hysteria:v2.9.2
 NGINX_IMAGE=nginx:1.27-alpine
 CERTBOT_IMAGE=certbot/certbot:v5.2.2
-FAKE_UI_VERSION=2.3.0
+FAKE_UI_VERSION=2.3.1
 FAKE_UI_DB=/data/panel/fake-ui.db
 EOF
 }

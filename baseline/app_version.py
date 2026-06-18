@@ -1,4 +1,4 @@
 import os
 
 
-APP_VERSION = os.getenv("FAKE_UI_VERSION", "2.3.0")
+APP_VERSION = os.getenv("FAKE_UI_VERSION", "2.3.1")
