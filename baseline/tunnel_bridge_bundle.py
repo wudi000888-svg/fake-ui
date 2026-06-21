@@ -728,6 +728,7 @@ def bootstrap_url(panel_url):
 
 
 def request_bootstrap(profile):
+    reserved = profile.get("reserved") or {}
     payload = {
         "schema": profile.get("schema"),
         "token_id": profile.get("token_id"),
@@ -735,9 +736,9 @@ def request_bootstrap(profile):
         "bridge_id": profile.get("bridge_id"),
         "bundle_kind": profile.get("bundle_kind"),
         "platform": profile.get("platform"),
-        "agent_id": profile.get("agent_id"),
+        "agent_id": reserved.get("agent_id") or profile.get("agent_id"),
         "agent_name": profile.get("agent_name"),
-        "capabilities": profile.get("capabilities") or [],
+        "capabilities": reserved.get("capabilities") or profile.get("capabilities") or [],
     }
     raw = json.dumps(payload).encode("utf-8")
     request = Request(
@@ -794,6 +795,8 @@ if __name__ == "__main__":
 
 def agent_profile(pairing, panel_url, bundle_kind, bridge_id, platform, agent_name):
     record = dict((pairing or {}).get("record") or {})
+    capabilities = list(record.get("capabilities") or [])
+    agent_id = record.get("agent_id", "")
     return {
         "schema": 1,
         "panel_url": str(panel_url or ""),
@@ -804,8 +807,9 @@ def agent_profile(pairing, panel_url, bundle_kind, bridge_id, platform, agent_na
         "platform": record.get("platform") or safe_id(platform).lower(),
         "agent_name": str(agent_name or safe_id(bridge_id)),
         "dashboard": {"host": DASHBOARD_HOST, "port": DASHBOARD_PORT},
-        "capabilities": list(record.get("capabilities") or []),
-        "agent_id": record.get("agent_id", ""),
+        "reserved": {"agent_id": agent_id, "capabilities": capabilities},
+        "capabilities": capabilities,
+        "agent_id": agent_id,
     }
 
 
@@ -820,6 +824,7 @@ def agent_profile_template(platform="linux"):
         "platform": safe_id(platform).lower(),
         "agent_name": "Example bridge agent",
         "dashboard": {"host": DASHBOARD_HOST, "port": DASHBOARD_PORT},
+        "reserved": {"agent_id": "", "capabilities": []},
         "capabilities": [],
         "agent_id": "",
     }

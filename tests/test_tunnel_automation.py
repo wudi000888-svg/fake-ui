@@ -699,6 +699,7 @@ def test_paired_dedicated_agent_bundle_contains_profile_bootstrap_and_no_extra_r
     assert profile["dashboard"] == {"host": "127.0.0.1", "port": 19090}
     assert profile["agent_id"] == "agent_test"
     assert profile["capabilities"] == ["bootstrap", "local_status"]
+    assert profile["reserved"] == {"agent_id": "agent_test", "capabilities": ["bootstrap", "local_status"]}
 
     bootstrap = texts[f"{root}/bootstrap-agent.py"]
     install = texts[f"{root}/install-linux.sh"]
@@ -762,6 +763,7 @@ def test_paired_shared_agent_bundle_contains_shared_profile_and_installer_bootst
     assert profile["platform"] == "windows"
     assert profile["agent_name"] == "office-linux"
     assert profile["pairing_token"] == "secret-token-shared"
+    assert profile["reserved"] == {"agent_id": "agent_test", "capabilities": ["bootstrap", "local_status"]}
     assert "bootstrap-agent.py" in texts[f"{root}/install-windows.ps1"]
     assert "agent-profile.json" in texts[f"{root}/install-windows.ps1"]
     token_hits = [name for name, text in texts.items() if "secret-token-shared" in text]
@@ -894,8 +896,10 @@ def test_standalone_bridge_client_assets_include_safe_bootstrap_templates():
     assert profile["panel_url"] == "https://your-panel.example.com"
     assert profile["token_id"] == "pair_example_token_id"
     assert profile["pairing_token"] == "replace-with-one-time-pairing-token"
+    assert profile["reserved"] == {"agent_id": "", "capabilities": []}
     assert "/api/agents/bootstrap" in files["bootstrap-agent.py"]
     assert "agent-state.json" in files["bootstrap-agent.py"]
+    assert "profile.get(\"reserved\")" in files["bootstrap-agent.py"]
     assert "secret-token" not in raw
     assert "api.example.com" not in raw
     assert "11111111-1111-4111-8111-111111111111" not in raw
