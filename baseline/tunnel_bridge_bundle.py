@@ -54,9 +54,52 @@ def plist_text(tunnel):
 """
 
 
+def shell_bootstrap_snippet():
+    return """SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/agent-profile.json" ] && [ -f "$SCRIPT_DIR/bootstrap-agent.py" ]; then
+  PYTHON="${PYTHON:-}"
+  if [ -z "$PYTHON" ]; then
+    if command -v python3 >/dev/null 2>&1; then
+      PYTHON=python3
+    elif command -v python >/dev/null 2>&1; then
+      PYTHON=python
+    else
+      echo "未找到 Python。请先安装 Python 3。" >&2
+      exit 1
+    fi
+  fi
+  "$PYTHON" "$SCRIPT_DIR/bootstrap-agent.py"
+fi
+if [ ! -f "$SCRIPT_DIR/xray-bridge.json" ]; then
+  echo "未找到 xray-bridge.json。请先运行 bootstrap-agent.py 或放入静态配置。" >&2
+  exit 1
+fi
+"""
+
+
+def powershell_bootstrap_snippet():
+    return """$Profile = Join-Path $PSScriptRoot "agent-profile.json"
+$Bootstrap = Join-Path $PSScriptRoot "bootstrap-agent.py"
+if ((Test-Path $Profile) -and (Test-Path $Bootstrap)) {
+  $Python = Get-Command python.exe -ErrorAction SilentlyContinue
+  if (-not $Python) {
+    $Python = Get-Command py.exe -ErrorAction SilentlyContinue
+  }
+  if (-not $Python) {
+    throw "未找到 Python。请先安装 Python 3。"
+  }
+  & $Python.Source $Bootstrap
+}
+if (-not (Test-Path (Join-Path $PSScriptRoot "xray-bridge.json"))) {
+  throw "未找到 xray-bridge.json。请先运行 bootstrap-agent.py 或放入静态配置。"
+}
+"""
+
+
 def install_script(tunnel):
     node_id = tunnel.get("id")
     sid = service_id(tunnel)
+    bootstrap = shell_bootstrap_snippet()
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
@@ -65,6 +108,7 @@ TUNNEL_DIR="$ROOT/tunnels/{node_id}"
 PLIST="$HOME/Library/LaunchAgents/{sid}.plist"
 
 mkdir -p "$ROOT/bin" "$TUNNEL_DIR" "$HOME/Library/LaunchAgents"
+{bootstrap}\
 cp "$(dirname "$0")/xray-bridge.json" "$TUNNEL_DIR/xray-bridge.json"
 cp "$(dirname "$0")/{sid}.plist" "$PLIST"
 sed -i '' "s|__HOME__|$HOME|g" "$PLIST"
@@ -653,6 +697,140 @@ def add_dashboard_assets(tar, root, bundle_kind, identifier, platform, tunnels):
         add_text(tar, f"{root}/open-dashboard.sh", open_dashboard_sh(), mode=0o755)
 
 
+def bootstrap_agent_script():
+    return r'''#!/usr/bin/env python3
+import json
+import sys
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin
+from urllib.request import ProxyHandler, Request, build_opener
+
+
+BASE_DIR = Path(__file__).resolve().parent
+PROFILE_PATH = BASE_DIR / "agent-profile.json"
+
+
+def read_json(path):
+    with path.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def write_json(path, data):
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def bootstrap_url(panel_url):
+    base = str(panel_url or "").strip()
+    if not base:
+        raise SystemExit("agent-profile.json panel_url is required")
+    return urljoin(base.rstrip("/") + "/", "/api/agents/bootstrap")
+
+
+def request_bootstrap(profile):
+    payload = {
+        "schema": profile.get("schema"),
+        "token_id": profile.get("token_id"),
+        "pairing_token": profile.get("pairing_token"),
+        "bridge_id": profile.get("bridge_id"),
+        "bundle_kind": profile.get("bundle_kind"),
+        "platform": profile.get("platform"),
+        "agent_id": profile.get("agent_id"),
+        "agent_name": profile.get("agent_name"),
+        "capabilities": profile.get("capabilities") or [],
+    }
+    raw = json.dumps(payload).encode("utf-8")
+    request = Request(
+        bootstrap_url(profile.get("panel_url")),
+        data=raw,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    try:
+        opener = build_opener(ProxyHandler({}))
+        with opener.open(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")
+        raise SystemExit(f"bootstrap failed: HTTP {exc.code} {detail}") from exc
+    except URLError as exc:
+        raise SystemExit(f"bootstrap failed: {exc}") from exc
+
+
+def main():
+    if not PROFILE_PATH.exists():
+        raise SystemExit("agent-profile.json is missing")
+    profile = read_json(PROFILE_PATH)
+    if not str(profile.get("pairing_token") or "").strip():
+        required = ["xray-bridge.json", "bridge-dashboard.json", "agent-state.json"]
+        if all((BASE_DIR / name).exists() for name in required):
+            print("fake-ui agent bootstrap already complete")
+            return
+        raise SystemExit("agent-profile.json pairing_token is missing")
+    result = request_bootstrap(profile)
+    if not result.get("ok"):
+        raise SystemExit(f"bootstrap failed: {result.get('error') or 'unknown error'}")
+    write_json(BASE_DIR / "xray-bridge.json", result.get("xray_config") or {})
+    write_json(BASE_DIR / "bridge-dashboard.json", result.get("dashboard_metadata") or {})
+    write_json(
+        BASE_DIR / "agent-state.json",
+        {
+            "agent": result.get("agent") or {},
+            "install": result.get("install") or {},
+            "bridge_id": profile.get("bridge_id"),
+            "bundle_kind": profile.get("bundle_kind"),
+            "platform": profile.get("platform"),
+        },
+    )
+    profile["pairing_token"] = ""
+    write_json(PROFILE_PATH, profile)
+    print("fake-ui agent bootstrap complete")
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def agent_profile(pairing, panel_url, bundle_kind, bridge_id, platform, agent_name):
+    record = dict((pairing or {}).get("record") or {})
+    return {
+        "schema": 1,
+        "panel_url": str(panel_url or ""),
+        "token_id": record.get("token_id", ""),
+        "pairing_token": (pairing or {}).get("pairing_token", ""),
+        "bridge_id": record.get("bridge_id") or safe_id(bridge_id),
+        "bundle_kind": record.get("bundle_kind") or bundle_kind,
+        "platform": record.get("platform") or safe_id(platform).lower(),
+        "agent_name": str(agent_name or safe_id(bridge_id)),
+        "dashboard": {"host": DASHBOARD_HOST, "port": DASHBOARD_PORT},
+        "capabilities": list(record.get("capabilities") or []),
+        "agent_id": record.get("agent_id", ""),
+    }
+
+
+def agent_profile_template(platform="linux"):
+    return {
+        "schema": 1,
+        "panel_url": "https://your-panel.example.com",
+        "token_id": "pair_example_token_id",
+        "pairing_token": "replace-with-one-time-pairing-token",
+        "bridge_id": "example-bridge",
+        "bundle_kind": "dedicated",
+        "platform": safe_id(platform).lower(),
+        "agent_name": "Example bridge agent",
+        "dashboard": {"host": DASHBOARD_HOST, "port": DASHBOARD_PORT},
+        "capabilities": [],
+        "agent_id": "",
+    }
+
+
+def add_pairing_assets(tar, root, pairing, panel_url, bundle_kind, bridge_id, platform, agent_name):
+    profile = agent_profile(pairing, panel_url, bundle_kind, bridge_id, platform, agent_name)
+    add_text(tar, f"{root}/agent-profile.json", json.dumps(profile, indent=2, ensure_ascii=False))
+    add_text(tar, f"{root}/bootstrap-agent.py", bootstrap_agent_script(), mode=0o755)
+
+
 def dedicated_linux_root(tunnel):
     return f"/opt/fake-ui-tunnel/{safe_id(tunnel.get('id'))}"
 
@@ -679,6 +857,7 @@ WantedBy=multi-user.target
 def dedicated_install_linux(tunnel):
     root = dedicated_linux_root(tunnel)
     service = dedicated_linux_service_id(tunnel)
+    bootstrap = shell_bootstrap_snippet()
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
@@ -690,6 +869,7 @@ fi
 ROOT="{root}"
 SERVICE="/etc/systemd/system/{service}"
 mkdir -p "$ROOT"
+{bootstrap}\
 cp "$(dirname "$0")/xray-bridge.json" "$ROOT/xray-bridge.json"
 cp "$(dirname "$0")/{service}" "$SERVICE"
 
@@ -730,9 +910,11 @@ echo "已卸载 {service}"
 def dedicated_install_windows(tunnel):
     bid = safe_id(tunnel.get("id"))
     task = dedicated_windows_task_name(tunnel)
+    bootstrap = powershell_bootstrap_snippet()
     return f"""$ErrorActionPreference = "Stop"
 $Root = Join-Path $env:ProgramData "fake-ui-tunnel\\{bid}"
 New-Item -ItemType Directory -Force -Path $Root | Out-Null
+{bootstrap}\
 Copy-Item -Force -Path (Join-Path $PSScriptRoot "xray-bridge.json") -Destination (Join-Path $Root "xray-bridge.json")
 $Xray = Join-Path $Root "xray.exe"
 if (-not (Test-Path $Xray)) {{
@@ -789,6 +971,46 @@ def build_bundle(tunnel, bridge_config, platform):
     return content.getvalue()
 
 
+def build_paired_bundle(tunnel, pairing, panel_url, platform):
+    platform = safe_id(platform).lower()
+    if platform not in {"macos", "linux", "windows"}:
+        raise RuntimeError("bridge platform is invalid")
+    if platform == "macos":
+        root = bundle_dir(tunnel)
+    else:
+        root = bundle_root(tunnel, platform)
+    content = io.BytesIO()
+    with tarfile.open(fileobj=content, mode="w:gz") as tar:
+        add_text(tar, f"{root}/README.md", readme_text(tunnel, platform))
+        add_dashboard_assets(tar, root, "dedicated", tunnel.get("id"), platform, [tunnel])
+        add_pairing_assets(
+            tar,
+            root,
+            pairing,
+            panel_url,
+            "dedicated",
+            tunnel.get("id"),
+            platform,
+            tunnel.get("name") or tunnel.get("id"),
+        )
+        if platform == "macos":
+            add_text(tar, f"{root}/{service_id(tunnel)}.plist", plist_text(tunnel))
+            add_text(tar, f"{root}/install-macos.sh", install_script(tunnel), mode=0o755)
+            add_text(tar, f"{root}/uninstall-macos.sh", uninstall_script(tunnel), mode=0o755)
+            add_text(tar, f"{root}/status-macos.sh", status_script(tunnel), mode=0o755)
+        elif platform == "linux":
+            service = dedicated_linux_service_id(tunnel)
+            add_text(tar, f"{root}/{service}", dedicated_linux_service_text(tunnel))
+            add_text(tar, f"{root}/install-linux.sh", dedicated_install_linux(tunnel), mode=0o755)
+            add_text(tar, f"{root}/uninstall-linux.sh", dedicated_uninstall_linux(tunnel), mode=0o755)
+            add_text(tar, f"{root}/status-linux.sh", agent_status_script([tunnel], platform), mode=0o755)
+        else:
+            add_text(tar, f"{root}/install-windows.ps1", dedicated_install_windows(tunnel))
+            add_text(tar, f"{root}/uninstall-windows.ps1", dedicated_uninstall_windows(tunnel))
+            add_text(tar, f"{root}/status-windows.ps1", agent_status_script([tunnel], platform))
+    return content.getvalue()
+
+
 def agent_service_id(bridge_id):
     return f"com.fakeui.bridge.{safe_id(bridge_id)}"
 
@@ -829,6 +1051,7 @@ def agent_plist_text(bridge_id):
 def agent_install_macos(bridge_id):
     sid = agent_service_id(bridge_id)
     bid = safe_id(bridge_id)
+    bootstrap = shell_bootstrap_snippet()
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
@@ -837,6 +1060,7 @@ BRIDGE_DIR="$ROOT/bridges/{bid}"
 PLIST="$HOME/Library/LaunchAgents/{sid}.plist"
 
 mkdir -p "$ROOT/bin" "$BRIDGE_DIR" "$HOME/Library/LaunchAgents"
+{bootstrap}\
 cp "$(dirname "$0")/xray-bridge.json" "$BRIDGE_DIR/xray-bridge.json"
 cp "$(dirname "$0")/{sid}.plist" "$PLIST"
 sed -i '' "s|__HOME__|$HOME|g" "$PLIST"
@@ -893,6 +1117,7 @@ WantedBy=multi-user.target
 def agent_install_linux(bridge_id):
     bid = safe_id(bridge_id)
     service = f"fake-ui-bridge-{bid}.service"
+    bootstrap = shell_bootstrap_snippet()
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
@@ -904,6 +1129,7 @@ fi
 ROOT="/opt/fake-ui-bridge/{bid}"
 SERVICE="/etc/systemd/system/{service}"
 mkdir -p "$ROOT"
+{bootstrap}\
 cp "$(dirname "$0")/xray-bridge.json" "$ROOT/xray-bridge.json"
 cp "$(dirname "$0")/{service}" "$SERVICE"
 
@@ -944,9 +1170,11 @@ echo "已卸载 {service}"
 def agent_install_windows(bridge_id):
     bid = safe_id(bridge_id)
     task = f"FakeUIBridge-{bid}"
+    bootstrap = powershell_bootstrap_snippet()
     return f"""$ErrorActionPreference = "Stop"
 $Root = Join-Path $env:ProgramData "fake-ui-bridge\\{bid}"
 New-Item -ItemType Directory -Force -Path $Root | Out-Null
+{bootstrap}\
 Copy-Item -Force -Path (Join-Path $PSScriptRoot "xray-bridge.json") -Destination (Join-Path $Root "xray-bridge.json")
 $Xray = Join-Path $Root "xray.exe"
 if (-not (Test-Path $Xray)) {{
@@ -1049,6 +1277,35 @@ def build_agent_bundle(bridge_id, tunnels, bridge_config, platform):
         add_text(tar, f"{root}/xray-bridge.json", json.dumps(bridge_config, indent=2, ensure_ascii=False))
         add_text(tar, f"{root}/README.md", agent_readme_text(bid, platform, tunnels))
         add_dashboard_assets(tar, root, "shared", bid, platform, tunnels)
+        if platform == "macos":
+            add_text(tar, f"{root}/{agent_service_id(bid)}.plist", agent_plist_text(bid))
+            add_text(tar, f"{root}/install-macos.sh", agent_install_macos(bid), mode=0o755)
+            add_text(tar, f"{root}/uninstall-macos.sh", agent_uninstall_macos(bid), mode=0o755)
+            add_text(tar, f"{root}/status-macos.sh", agent_status_script(tunnels, platform), mode=0o755)
+        elif platform == "linux":
+            service = f"fake-ui-bridge-{bid}.service"
+            add_text(tar, f"{root}/{service}", linux_service_text(bid))
+            add_text(tar, f"{root}/install-linux.sh", agent_install_linux(bid), mode=0o755)
+            add_text(tar, f"{root}/uninstall-linux.sh", agent_uninstall_linux(bid), mode=0o755)
+            add_text(tar, f"{root}/status-linux.sh", agent_status_script(tunnels, platform), mode=0o755)
+        else:
+            add_text(tar, f"{root}/install-windows.ps1", agent_install_windows(bid))
+            add_text(tar, f"{root}/uninstall-windows.ps1", agent_uninstall_windows(bid))
+            add_text(tar, f"{root}/status-windows.ps1", agent_status_script(tunnels, platform))
+    return content.getvalue()
+
+
+def build_paired_agent_bundle(bridge_id, tunnels, pairing, panel_url, platform):
+    platform = safe_id(platform).lower()
+    if platform not in {"macos", "linux", "windows"}:
+        raise RuntimeError("bridge platform is invalid")
+    bid = safe_id(bridge_id)
+    root = agent_root(bid, platform)
+    content = io.BytesIO()
+    with tarfile.open(fileobj=content, mode="w:gz") as tar:
+        add_text(tar, f"{root}/README.md", agent_readme_text(bid, platform, tunnels))
+        add_dashboard_assets(tar, root, "shared", bid, platform, tunnels)
+        add_pairing_assets(tar, root, pairing, panel_url, "shared", bid, platform, bid)
         if platform == "macos":
             add_text(tar, f"{root}/{agent_service_id(bid)}.plist", agent_plist_text(bid))
             add_text(tar, f"{root}/install-macos.sh", agent_install_macos(bid), mode=0o755)

@@ -1,5 +1,8 @@
+import os
 import urllib.parse
 
+import agent_pairing
+import app_urls
 import audit_log
 import tunnel_bridge_bundle
 import tunnel_catalog
@@ -87,6 +90,10 @@ def shared_bridge_profile(tunnels):
     return tunnel_catalog.reality_profile_for_tunnel(first)
 
 
+def panel_url():
+    return (os.getenv("PUBLIC_BASE_URL") or app_urls.absolute_url("/")).rstrip("/")
+
+
 def handle_tunnel_get(path, session):
     parsed = urllib.parse.urlparse(path)
     clean = parsed.path
@@ -120,6 +127,17 @@ def handle_tunnel_get(path, session):
             return api_error(str(exc), 404)
         if action == "bridge-config":
             return ok(filename=f"{bridge_id}-xray-bridge.json", config=cfg)
+        if action.endswith("-agent-bundle"):
+            platform = action[:-len("-agent-bundle")]
+            if platform not in tunnel_catalog.BRIDGE_PLATFORMS:
+                return api_error("bridge platform is invalid", 400)
+            pairing = agent_pairing.create_pairing("shared", bridge_id, platform, created_by=session.get("u", "admin"))
+            content = tunnel_bridge_bundle.build_paired_agent_bundle(bridge_id, tunnels, pairing, panel_url(), platform)
+            return ok(
+                filename=f"{bridge_id}-{platform}-agent-bridge.tgz",
+                content=content,
+                content_type="application/gzip",
+            )
         if action.endswith("-bundle"):
             platform = action[:-len("-bundle")]
             if platform not in tunnel_catalog.BRIDGE_PLATFORMS:
@@ -138,6 +156,24 @@ def handle_tunnel_get(path, session):
         tunnel = tunnel_catalog.get_tunnel(node_id)
         cfg = tunnel_config_builder.build_bridge_config(tunnel, tunnel_catalog.reality_profile_for_tunnel(tunnel))
         return ok(filename=f"{tunnel.get('id')}-xray-bridge.json", config=cfg)
+
+    suffix = "-agent-bundle"
+    if clean.startswith(prefix) and clean.endswith(suffix):
+        rest = clean[len(prefix):-len(suffix)].strip("/")
+        parts = [urllib.parse.unquote(part) for part in rest.split("/") if part]
+        if len(parts) != 2:
+            return api_error("not found", 404)
+        node_id, platform = parts
+        if platform not in tunnel_catalog.BRIDGE_PLATFORMS:
+            return api_error("bridge platform is invalid", 400)
+        tunnel = tunnel_catalog.get_tunnel(node_id)
+        pairing = agent_pairing.create_pairing("dedicated", tunnel.get("id"), platform, created_by=session.get("u", "admin"))
+        content = tunnel_bridge_bundle.build_paired_bundle(tunnel, pairing, panel_url(), platform)
+        return ok(
+            filename=f"{tunnel.get('id')}-{platform}-agent-bridge.tgz",
+            content=content,
+            content_type="application/gzip",
+        )
 
     suffix = "-bundle"
     if clean.startswith(prefix) and clean.endswith(suffix):

@@ -155,6 +155,20 @@ def shell_start_script():
     return """#!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+if [ -f agent-profile.json ] && [ -f bootstrap-agent.py ]; then
+  PYTHON="${PYTHON:-}"
+  if [ -z "$PYTHON" ]; then
+    if command -v python3 >/dev/null 2>&1; then
+      PYTHON=python3
+    elif command -v python >/dev/null 2>&1; then
+      PYTHON=python
+    else
+      echo "未找到 Python。请先安装 Python 3。" >&2
+      exit 1
+    fi
+  fi
+  "$PYTHON" bootstrap-agent.py
+fi
 XRAY="${XRAY:-./xray}"
 if [ ! -x "$XRAY" ]; then
   if command -v xray >/dev/null 2>&1; then
@@ -190,6 +204,18 @@ echo "fake-ui bridge client stopped"
 def powershell_start_script():
     return """$ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
+$Profile = Join-Path $PSScriptRoot "agent-profile.json"
+$Bootstrap = Join-Path $PSScriptRoot "bootstrap-agent.py"
+if ((Test-Path $Profile) -and (Test-Path $Bootstrap)) {
+  $Python = Get-Command python.exe -ErrorAction SilentlyContinue
+  if (-not $Python) {
+    $Python = Get-Command py.exe -ErrorAction SilentlyContinue
+  }
+  if (-not $Python) {
+    throw "未找到 Python。请先安装 Python 3。"
+  }
+  & $Python.Source $Bootstrap
+}
 $Xray = Join-Path $PSScriptRoot "xray.exe"
 if (-not (Test-Path $Xray)) {
   $Found = Get-Command xray.exe -ErrorAction SilentlyContinue
@@ -228,6 +254,8 @@ def files_for_platform(platform, version):
         "README.md": readme(platform, version),
         "bridge-dashboard.py": module.dashboard_script(),
         "bridge-dashboard.json": json.dumps(client_metadata(module, platform), indent=2, ensure_ascii=False),
+        "bootstrap-agent.py": module.bootstrap_agent_script(),
+        "agent-profile.example.json": json.dumps(module.agent_profile_template(platform), indent=2, ensure_ascii=False),
         "xray-bridge.example.json": json.dumps(example_bridge_config(), indent=2, ensure_ascii=False),
     }
     if platform == "windows":
@@ -265,7 +293,7 @@ def write_tar_gz(output, files):
             info.gid = 0
             info.uname = ""
             info.gname = ""
-            if name.endswith(".sh") or name == "bridge-dashboard.py":
+            if name.endswith(".sh") or name in {"bridge-dashboard.py", "bootstrap-agent.py"}:
                 info.mode = 0o755
             else:
                 info.mode = 0o644
