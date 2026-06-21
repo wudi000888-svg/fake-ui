@@ -20,6 +20,7 @@ SPA_ROUTES = {
     "/plans",
     "/orders",
     "/nodes",
+    "/tunnels",
     "/audit",
     "/backups",
     "/account",

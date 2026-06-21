@@ -8,6 +8,7 @@ from api_node_routes import handle_node_post
 from api_payment_routes import handle_payment_post, is_admin
 from api_public_routes import handle_public_post
 from api_self_routes import handle_self_post
+from api_tunnel_routes import handle_tunnel_post
 from api_user_routes import handle_user_post
 from http_utils import api_error
 
@@ -58,7 +59,7 @@ def handle_post(path, data, session):
             return payment_result
         return api_error("forbidden", 403)
 
-    for handler in (handle_admin_post, handle_user_post, handle_node_post, handle_payment_post):
+    for handler in (handle_admin_post, handle_user_post, handle_node_post, handle_tunnel_post, handle_payment_post):
         result = handler(clean, data, session)
         if result is not None:
             return result

@@ -60,6 +60,9 @@ MODULES_TO_RELOAD = [
     "hy2_config_builder",
     "hy2_runtime",
     "hy2_status_service",
+    "tunnel_config_builder",
+    "tunnel_catalog",
+    "api_tunnel_routes",
     "api",
 ]
 
@@ -127,6 +130,15 @@ def test_api_auth_and_public_routes(app_modules):
 
     status, payload = api.handle_post("/api/login", {"username": "admin", "password": "wrong"}, None)
     assert status == 401
+
+
+def test_admin_app_shell_includes_tunnel_nav(app_modules):
+    api = app_modules["api"]
+
+    status, payload = api.handle_get("/api/app-shell", admin_session(app_modules))
+
+    assert status == 200
+    assert {"id": "tunnels", "label": "内网穿透", "icon": "⇄"} in payload["nav"]
 
 
 def test_public_registration_is_disabled_by_default(app_modules):
@@ -653,6 +665,476 @@ def test_node_save_refreshes_exit_info_and_public_payload(app_modules, monkeypat
     stored = node_catalog.get_node("vless-main")
     assert stored["exit_ip"] == "198.51.100.44"
     assert stored["country_code"] == "JP"
+
+
+def test_admin_can_save_tunnel_node_and_export_bridge_config(app_modules, monkeypatch):
+    api = app_modules["api"]
+    monkeypatch.setattr(app_modules["dashboard_service"].xray_panel, "current_status", lambda: {"proxy": "127.0.0.1:8443"})
+    monkeypatch.setattr(app_modules["dashboard_service"].hy2_panel, "hy2_status", lambda: {})
+    monkeypatch.setattr(
+        app_modules["api_tunnel_routes"].xray_runtime,
+        "load_config",
+        lambda: {
+            "inbounds": [
+                {
+                    "tag": "vless-reality-in",
+                    "listen": "0.0.0.0",
+                    "port": 8443,
+                    "protocol": "vless",
+                    "settings": {"clients": [], "decryption": "none"},
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "dest": "www.cloudflare.com:443",
+                            "serverNames": ["www.cloudflare.com"],
+                            "privateKey": "server-private-key",
+                            "shortIds": ["0123456789abcdef"],
+                        },
+                    },
+                }
+            ],
+            "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+            "routing": {"rules": []},
+        },
+    )
+
+    status, payload = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "id": "macmini",
+            "name": "Mac mini SSH",
+            "portal_port": "2222",
+            "target_host": "127.0.0.1",
+            "target_port": "22",
+            "client_id": "11111111-1111-4111-8111-111111111111",
+            "reality_sni": "www.cloudflare.com",
+            "server_address": "vless.example.com",
+            "server_port": "443",
+            "public_key": "server-public-key",
+            "short_id": "0123456789abcdef",
+            "flow": "   ",
+        },
+        admin_session(app_modules),
+    )
+
+    assert status == 200
+    assert payload["tunnel"]["id"] == "macmini"
+    assert payload["tunnel"]["portal_port"] == 2222
+    assert payload["tunnel"]["target_port"] == 22
+    assert payload["tunnel"]["flow"] == "xtls-rprx-vision"
+
+    status, payload = api.handle_get("/api/tunnels", admin_session(app_modules))
+    assert status == 200
+    assert payload["tunnels"][0]["id"] == "macmini"
+    assert payload["tunnels"][0]["display_name"] == "Mac mini SSH"
+
+    status, payload = api.handle_get("/api/dashboard", admin_session(app_modules))
+    assert status == 200
+    assert payload["data"]["tunnels"][0]["id"] == "macmini"
+
+    status, payload = api.handle_get("/api/tunnels/macmini/bridge-config", admin_session(app_modules))
+    assert status == 200
+    assert payload["filename"] == "macmini-xray-bridge.json"
+    cfg = payload["config"]
+    reverse = next(item for item in cfg["outbounds"] if item.get("tag") == "tunnel-reverse-out")
+    assert reverse["settings"]["address"] == "vless.example.com"
+    assert reverse["streamSettings"]["realitySettings"]["serverName"] == "www.cloudflare.com"
+    local = next(item for item in cfg["outbounds"] if item.get("tag") == "tunnel-local-service")
+    assert local["settings"]["redirect"] == "127.0.0.1:22"
+
+    status, payload = api.handle_get("/api/tunnels/portal-config", admin_session(app_modules))
+    assert status == 200
+    portal_cfg = payload["config"]
+    vless = next(item for item in portal_cfg["inbounds"] if item.get("tag") == "vless-reality-in")
+    assert vless["settings"]["clients"][0]["reverse"] == {"tag": "tunnel-reverse-macmini"}
+    assert next(item for item in portal_cfg["inbounds"] if item.get("tag") == "tunnel-portal-macmini")["port"] == 2222
+
+
+def test_admin_can_save_generic_domain_tunnel_and_export_macos_bundle(app_modules, monkeypatch):
+    api = app_modules["api"]
+    monkeypatch.setattr(
+        app_modules["api_tunnel_routes"].xray_runtime,
+        "load_config",
+        lambda: {
+            "inbounds": [
+                {
+                    "tag": "vless-reality-in",
+                    "listen": "0.0.0.0",
+                    "port": 8443,
+                    "protocol": "vless",
+                    "settings": {
+                        "clients": [
+                            {"id": "22222222-2222-4222-8222-222222222222", "email": "panel-user:alice"}
+                        ],
+                        "decryption": "none",
+                    },
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "dest": "www.cloudflare.com:443",
+                            "serverNames": ["www.cloudflare.com"],
+                            "publicKey": "server-public-key",
+                            "privateKey": "server-private-key",
+                            "shortIds": ["0123456789abcdef"],
+                        },
+                    },
+                }
+            ],
+            "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+            "routing": {"rules": []},
+        },
+    )
+
+    status, payload = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "public_domain": "New.Example.COM",
+            "name": "New service",
+            "target_port": "3000",
+        },
+        admin_session(app_modules),
+    )
+
+    assert status == 200
+    tunnel = payload["tunnel"]
+    assert tunnel["id"] == "new-example-com"
+    assert tunnel["public_domain"] == "new.example.com"
+    assert tunnel["portal_port"] == 18081
+    assert tunnel["server_address"] == "new.example.com"
+    assert tunnel["public_key"] == "server-public-key"
+    assert tunnel["short_id"] == "0123456789abcdef"
+    assert tunnel["client_id"] != "22222222-2222-4222-8222-222222222222"
+
+    status, bundle = api.handle_get("/api/tunnels/new-example-com/macos-bundle", admin_session(app_modules))
+    assert status == 200
+    assert bundle["filename"] == "new-example-com-macos-bridge.tgz"
+    assert bundle["content_type"] == "application/gzip"
+    assert isinstance(bundle["content"], bytes)
+
+
+def test_tunnel_save_rejects_missing_reality_public_key(app_modules, monkeypatch):
+    api = app_modules["api"]
+    monkeypatch.setattr(
+        app_modules["api_tunnel_routes"].xray_runtime,
+        "load_config",
+        lambda: {
+            "inbounds": [
+                {
+                    "tag": "vless-reality-in",
+                    "listen": "0.0.0.0",
+                    "port": 8443,
+                    "protocol": "vless",
+                    "settings": {"clients": [], "decryption": "none"},
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "dest": "www.cloudflare.com:443",
+                            "serverNames": ["www.cloudflare.com"],
+                            "privateKey": "server-private-key",
+                            "shortIds": ["0123456789abcdef"],
+                        },
+                    },
+                }
+            ],
+            "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+            "routing": {"rules": []},
+        },
+    )
+    monkeypatch.setattr(app_modules["api_tunnel_routes"], "derive_public_key", lambda private_key: "")
+
+    status, payload = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "public_domain": "new.example.com",
+            "name": "New service",
+            "target_port": "3000",
+        },
+        admin_session(app_modules),
+    )
+
+    assert status == 400
+    assert "Reality public key" in payload["error"]
+
+
+def test_tunnel_public_key_derivation_parses_current_xray_output(app_modules, monkeypatch):
+    routes = app_modules["api_tunnel_routes"]
+
+    def fake_run(cmd, timeout=15):
+        return 0, "\n".join(
+            [
+                "PrivateKey: server-private-key",
+                "Password (PublicKey): server-public-key",
+                "Hash32: ignored",
+            ]
+        )
+
+    monkeypatch.setattr(routes, "run", fake_run)
+
+    assert routes.derive_public_key("server-private-key") == "server-public-key"
+
+
+def test_admin_can_save_private_tcp_tunnel_without_public_domain(app_modules, monkeypatch):
+    api = app_modules["api"]
+    base_cfg = {
+        "inbounds": [
+            {
+                "tag": "vless-reality-in",
+                "listen": "0.0.0.0",
+                "port": 8443,
+                "protocol": "vless",
+                "settings": {"clients": [], "decryption": "none"},
+                "streamSettings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "dest": "www.cloudflare.com:443",
+                        "serverNames": ["www.cloudflare.com"],
+                        "publicKey": "server-public-key",
+                        "privateKey": "server-private-key",
+                        "shortIds": ["0123456789abcdef"],
+                    },
+                },
+            }
+        ],
+        "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+        "routing": {"rules": []},
+    }
+    applied = {}
+    monkeypatch.setattr(app_modules["api_tunnel_routes"].xray_runtime, "load_config", lambda: base_cfg)
+    monkeypatch.setattr(app_modules["api_tunnel_routes"].xray_runtime, "write_and_restart_xray", lambda cfg: applied.setdefault("xray", cfg) or "backup")
+
+    def fake_apply_nginx(tunnels):
+        applied["nginx"] = list(tunnels)
+        return {"domains": [], "issued": [], "conf": "/etc/nginx/conf.d/fake-ui-tunnels.conf"}
+
+    monkeypatch.setattr(app_modules["api_tunnel_routes"].tunnel_nginx, "apply_native_nginx", fake_apply_nginx)
+
+    status, payload = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "kind": "private_tcp",
+            "id": "macbook-ssh",
+            "name": "MacBook SSH",
+            "target_host": "127.0.0.1",
+            "target_port": "22",
+        },
+        admin_session(app_modules),
+    )
+
+    assert status == 200
+    tunnel = payload["tunnel"]
+    assert tunnel["kind"] == "private_tcp"
+    assert tunnel["public_domain"] == ""
+    assert tunnel["server_address"] == "vless.example.com"
+    assert tunnel["target_port"] == 22
+
+    status, bundle = api.handle_get("/api/tunnels/macbook-ssh/macos-bundle", admin_session(app_modules))
+    assert status == 200
+    assert bundle["filename"] == "macbook-ssh-macos-bridge.tgz"
+
+    status, payload = api.handle_post("/api/tunnels/apply", {}, admin_session(app_modules))
+
+    assert status == 200
+    assert payload["nginx"]["domains"] == []
+    assert next(item for item in applied["xray"]["inbounds"] if item["tag"] == "tunnel-portal-macbook-ssh")["port"] == 18081
+    client = next(
+        item for item in next(inbound for inbound in applied["xray"]["inbounds"] if inbound["tag"] == "vless-reality-in")["settings"]["clients"]
+        if item.get("email") == "tunnel:macbook-ssh"
+    )
+    assert client["reverse"] == {"tag": "tunnel-reverse-macbook-ssh"}
+
+
+def test_tunnel_apply_updates_xray_and_native_nginx(app_modules, monkeypatch):
+    api = app_modules["api"]
+    base_cfg = {
+        "inbounds": [
+            {
+                "tag": "vless-reality-in",
+                "listen": "0.0.0.0",
+                "port": 8443,
+                "protocol": "vless",
+                "settings": {"clients": [], "decryption": "none"},
+                "streamSettings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "dest": "www.cloudflare.com:443",
+                        "serverNames": ["www.cloudflare.com"],
+                        "publicKey": "server-public-key",
+                        "privateKey": "server-private-key",
+                        "shortIds": ["0123456789abcdef"],
+                    },
+                },
+            }
+        ],
+        "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+        "routing": {"rules": []},
+    }
+    applied = {}
+    monkeypatch.setattr(app_modules["api_tunnel_routes"].xray_runtime, "load_config", lambda: base_cfg)
+    monkeypatch.setattr(app_modules["api_tunnel_routes"].xray_runtime, "write_and_restart_xray", lambda cfg: applied.setdefault("xray", cfg) or "backup")
+    def fake_apply_nginx(tunnels):
+        applied["nginx"] = list(tunnels)
+        return {"domains": ["new.example.com"]}
+
+    monkeypatch.setattr(app_modules["api_tunnel_routes"].tunnel_nginx, "apply_native_nginx", fake_apply_nginx)
+
+    status, payload = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "public_domain": "new.example.com",
+            "name": "New service",
+            "target_port": "3000",
+        },
+        admin_session(app_modules),
+    )
+    assert status == 200
+
+    status, payload = api.handle_post("/api/tunnels/apply", {}, admin_session(app_modules))
+
+    assert status == 200
+    assert payload["nginx"] == {"domains": ["new.example.com"]}
+    assert next(item for item in applied["xray"]["inbounds"] if item["tag"] == "tunnel-portal-new-example-com")["port"] == 18081
+    assert applied["nginx"][0]["public_domain"] == "new.example.com"
+
+
+def test_admin_can_export_shared_bridge_agent_config_and_bundle(app_modules, monkeypatch):
+    api = app_modules["api"]
+    monkeypatch.setattr(
+        app_modules["api_tunnel_routes"].xray_runtime,
+        "load_config",
+        lambda: {
+            "inbounds": [
+                {
+                    "tag": "vless-reality-in",
+                    "listen": "0.0.0.0",
+                    "port": 8443,
+                    "protocol": "vless",
+                    "settings": {"clients": [], "decryption": "none"},
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "dest": "www.cloudflare.com:443",
+                            "serverNames": ["www.cloudflare.com"],
+                            "publicKey": "server-public-key",
+                            "privateKey": "server-private-key",
+                            "shortIds": ["0123456789abcdef"],
+                        },
+                    },
+                }
+            ],
+            "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+            "routing": {"rules": []},
+        },
+    )
+
+    for payload in [
+        {
+            "public_domain": "test.example.com",
+            "id": "test-example-com",
+            "name": "Test Web",
+            "target_port": "18080",
+            "bridge_mode": "shared",
+            "bridge_id": "macbook-web",
+            "bridge_platform": "macos",
+        },
+        {
+            "public_domain": "mac.example.com",
+            "id": "mac-example-com",
+            "name": "Mac Web",
+            "target_port": "18081",
+            "bridge_mode": "shared",
+            "bridge_id": "macbook-web",
+            "bridge_platform": "macos",
+        },
+        {
+            "kind": "private_tcp",
+            "id": "macbook-ssh",
+            "name": "MacBook SSH",
+            "target_port": "22",
+            "bridge_mode": "dedicated",
+            "bridge_id": "macbook-ssh",
+        },
+    ]:
+        status, body = api.handle_post("/api/tunnels/save", payload, admin_session(app_modules))
+        assert status == 200, body
+
+    status, body = api.handle_get("/api/tunnels/bridges/macbook-web/bridge-config", admin_session(app_modules))
+    assert status == 200
+    assert body["filename"] == "macbook-web-xray-bridge.json"
+    tags = [item["tag"] for item in body["config"]["outbounds"]]
+    assert "tunnel-reverse-out-test-example-com" in tags
+    assert "tunnel-reverse-out-mac-example-com" in tags
+    assert "tunnel-reverse-out-macbook-ssh" not in tags
+
+    status, bundle = api.handle_get("/api/tunnels/bridges/macbook-web/macos-bundle", admin_session(app_modules))
+    assert status == 200
+    assert bundle["filename"] == "macbook-web-macos-bridge.tgz"
+    assert bundle["content_type"] == "application/gzip"
+    assert isinstance(bundle["content"], bytes)
+
+    status, bundle = api.handle_get("/api/tunnels/bridges/macbook-web/linux-bundle", admin_session(app_modules))
+    assert status == 200
+    assert bundle["filename"] == "macbook-web-linux-bridge.tgz"
+
+    status, bundle = api.handle_get("/api/tunnels/bridges/macbook-web/windows-bundle", admin_session(app_modules))
+    assert status == 200
+    assert bundle["filename"] == "macbook-web-windows-bridge.tgz"
+
+
+def test_admin_can_export_dedicated_bridge_bundle_for_backend_platforms(app_modules, monkeypatch):
+    api = app_modules["api"]
+    monkeypatch.setattr(
+        app_modules["api_tunnel_routes"].xray_runtime,
+        "load_config",
+        lambda: {
+            "inbounds": [
+                {
+                    "tag": "vless-reality-in",
+                    "port": 8443,
+                    "streamSettings": {
+                        "realitySettings": {
+                            "dest": "www.cloudflare.com:443",
+                            "serverNames": ["www.cloudflare.com"],
+                            "publicKey": "server-public-key",
+                            "privateKey": "server-private-key",
+                            "shortIds": ["0123456789abcdef"],
+                        },
+                    },
+                    "settings": {"clients": []},
+                }
+            ],
+            "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+            "routing": {"rules": []},
+        },
+    )
+
+    status, body = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "public_domain": "api.example.com",
+            "id": "office-api",
+            "name": "Office API",
+            "target_port": "5000",
+            "bridge_platform": "linux",
+        },
+        admin_session(app_modules),
+    )
+    assert status == 200, body
+
+    status, bundle = api.handle_get("/api/tunnels/office-api/linux-bundle", admin_session(app_modules))
+    assert status == 200
+    assert bundle["filename"] == "office-api-linux-bridge.tgz"
+    assert bundle["content_type"] == "application/gzip"
+    assert isinstance(bundle["content"], bytes)
+
+    status, bundle = api.handle_get("/api/tunnels/office-api/windows-bundle", admin_session(app_modules))
+    assert status == 200
+    assert bundle["filename"] == "office-api-windows-bridge.tgz"
 
 
 def test_hy2_apply_and_disable_refresh_node_payload(app_modules, monkeypatch):

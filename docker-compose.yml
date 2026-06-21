@@ -44,8 +44,10 @@ services:
       HY2_LOGS_CMD: docker logs --tail=80 hysteria2
       QUOTA_COLLECT_CMD: python3 /app/quota_collect.py
       ENFORCE_USERS_CMD: python3 /app/enforce_users.py
-      FAKE_UI_VERSION: ${FAKE_UI_VERSION:-2.3.1}
+      FAKE_UI_VERSION: ${FAKE_UI_VERSION:-3.0.0}
       FAKE_UI_DB: ${FAKE_UI_DB:-/data/panel/fake-ui.db}
+      FAKE_UI_HOST_COMMAND_MODE: ${FAKE_UI_HOST_COMMAND_MODE:-}
+      FAKE_UI_HOST_HELPER_IMAGE: ${PANEL_IMAGE:-xray-proxy-panel:local}
     volumes:
       - ./data:/data
       - /var/run/docker.sock:/var/run/docker.sock

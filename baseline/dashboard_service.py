@@ -16,6 +16,7 @@ import plans_store
 import public_settings
 import registration_store
 import subscription_guard
+import tunnel_catalog
 import traffic_store
 import user_store
 import xray_panel
@@ -200,6 +201,7 @@ def dashboard(session):
                 "payments": payments_store.list_payments(admin=True, limit=80),
                 "payment_rates": payments_store.load_rates(),
                 "nodes": node_catalog.list_public_nodes(admin=True),
+                "tunnels": tunnel_catalog.list_public_tunnels(),
                 "audit": audit_log.tail(80),
                 "backups": backup_manager.list_backups(20),
                 "public_settings": public_settings.read(),

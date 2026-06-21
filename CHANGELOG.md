@@ -1,5 +1,17 @@
 # 更新日志
 
+## v3.0.0
+
+| 类型 | 内容 |
+| --- | --- |
+| 内网穿透 | 新增通用内网穿透管理页，支持任意客户域名映射到 macOS、Linux 或 Windows 后端本地服务，不再绑定固定域名后缀 |
+| 自动化 | 面板保存穿透节点时自动分配 portal 端口、生成独立 UUID、email、portal tag 和 reverse tag，并校验与普通代理用户 UUID 不复用 |
+| VPS | 应用穿透时自动更新 Xray Reality portal 配置、生成 Nginx HTTP/HTTPS 反代、通过 certbot 签发域名证书并 reload Nginx |
+| 后端 Agent | 每个服务可导出 macOS launchd、Linux systemd 或 Windows Scheduled Task 安装包，包含 Xray 配置、安装、卸载和状态检查脚本 |
+| 高级模式 | 支持“单机器共享 bridge”，同一后端机器上的多个服务可以合并到一个 Xray Agent 进程，SSH 等救援入口仍可保持独立 |
+| 架构 | 默认采用单服务单 bridge 模式，普通代理用户继续使用 `panel-user:<username>`，穿透 bridge 使用 `tunnel:<id>` |
+| 升级 | 应用穿透配置时会自动禁用旧版 `fake-ui-tunnel-*.conf` 单域名 Nginx 配置，避免旧 upstream 抢占新域名导致 502 |
+
 ## v2.3.1
 
 | 类型 | 内容 |

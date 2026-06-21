@@ -128,6 +128,11 @@ export function bindAppActions(app, { refresh, render, loadAuthenticatedApp }) {
         await render();
         return;
       }
+      if (button.dataset.action === "tunnels-filter") {
+        setFilter(app, state, "tunnels");
+        await render();
+        return;
+      }
       if (button.dataset.action === "orders-filter") {
         setFilter(app, state, "orders");
         await render();

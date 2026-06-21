@@ -1,7 +1,7 @@
 import { cssEscape, fillForm, openForm, closeBySelector } from "../dom.js";
 
 
-const FORM_SELECTOR = ".user-create-form, .user-edit-form, .node-edit-form, .plan-edit-form, .hy2-edit-form";
+const FORM_SELECTOR = ".user-create-form, .user-edit-form, .node-edit-form, .plan-edit-form, .hy2-edit-form, .tunnel-edit-form";
 
 
 export function closeForms(root) {
@@ -53,6 +53,41 @@ export function fillNodeForm(root, node) {
     "proxy_user",
   ]);
   if (form?.elements.proxy_password) form.elements.proxy_password.value = "";
+  form?.scrollIntoView({ behavior: "smooth", block: "start" });
+  form?.elements.name?.focus();
+}
+
+
+export function fillTunnelForm(root, tunnel = {}) {
+  openForm(root, ".tunnel-edit-form");
+  const form = root.querySelector('form[data-form="tunnel-save"]');
+  fillForm(form, {
+    kind: tunnel?.kind || "public_https",
+    id: tunnel?.id || "",
+    public_domain: tunnel?.public_domain || "",
+    name: tunnel?.name || "",
+    portal_port: tunnel?.portal_port ?? "",
+    target_host: tunnel?.target_host || "127.0.0.1",
+    target_port: tunnel?.target_port ?? "3000",
+    client_id: tunnel?.client_id || "",
+    reality_sni: tunnel?.reality_sni || "www.cloudflare.com",
+    bridge_mode: tunnel?.bridge_mode || "dedicated",
+    bridge_id: tunnel?.bridge_id || tunnel?.id || "",
+    bridge_platform: tunnel?.bridge_platform || "macos",
+  }, [
+    "kind",
+    "id",
+    "public_domain",
+    "name",
+    "portal_port",
+    "target_host",
+    "target_port",
+    "client_id",
+    "reality_sni",
+    "bridge_mode",
+    "bridge_id",
+    "bridge_platform",
+  ]);
   form?.scrollIntoView({ behavior: "smooth", block: "start" });
   form?.elements.name?.focus();
 }

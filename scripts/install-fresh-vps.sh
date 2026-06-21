@@ -409,7 +409,8 @@ PANEL_IMAGE=xray-proxy-panel:local
 HYSTERIA_IMAGE=tobyxdd/hysteria:v2.9.2
 NGINX_IMAGE=nginx:1.27-alpine
 CERTBOT_IMAGE=certbot/certbot:v5.2.2
-FAKE_UI_VERSION=2.3.1
+FAKE_UI_VERSION=3.0.0
+FAKE_UI_HOST_COMMAND_MODE=$([[ "$DEPLOY_MODE" == "native-nginx" ]] && echo docker-nsenter || true)
 FAKE_UI_DB=/data/panel/fake-ui.db
 EOF
 }

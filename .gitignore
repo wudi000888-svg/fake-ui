@@ -4,6 +4,7 @@ artifacts/
 .superpowers/
 .worktrees/
 .pytest_cache/
+.venv/
 *.tgz
 *.tar.gz
 *.pem

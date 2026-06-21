@@ -1,6 +1,7 @@
 import urllib.parse
 
 import api_v2_routes
+import api_tunnel_routes
 import audit_log
 import backup_manager
 import hy2_panel
@@ -31,6 +32,10 @@ def handle_get(path, session):
         return ok(public_settings=ops.get_public_settings())
     if not session:
         return api_error("not authenticated", 401)
+
+    tunnel_result = api_tunnel_routes.handle_tunnel_get(path, session)
+    if tunnel_result is not None:
+        return tunnel_result
 
     if clean == "/api/dashboard":
         return ok(data=ops.dashboard(session))

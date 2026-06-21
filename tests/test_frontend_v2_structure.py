@@ -168,6 +168,41 @@ def test_frontend_v2_actions_are_split_by_domain():
     assert "handleUserNodeAction" in handlers
 
 
+def test_frontend_exposes_tunnel_management_screen():
+    routes = read_asset("js/pages/registry.js")
+    tunnels = read_asset("js/pages/admin/tunnels.js")
+    handlers = read_action_assets()
+    user_node_actions = read_asset("js/actions/users_nodes.js")
+
+    assert 'if (state.route === "tunnels") return renderAdminTunnels(data);' in routes
+    assert "内网穿透" in tunnels
+    assert 'data-form="tunnel-save"' in tunnels
+    assert 'data-action="tunnel-export"' in tunnels
+    assert 'data-action="tunnel-bundle-export"' in tunnels
+    assert 'data-platform="${esc(platform)}"' in tunnels
+    assert 'data-action="tunnel-shared-bundle-export"' in tunnels
+    assert 'data-action="tunnel-portal-export"' in tunnels
+    assert 'data-action="tunnel-portal-apply"' in tunnels
+    assert 'name="kind"' in tunnels
+    assert 'value="public_https"' in tunnels
+    assert 'value="private_tcp"' in tunnels
+    assert 'name="bridge_mode"' in tunnels
+    assert 'value="shared"' in tunnels
+    assert 'name="bridge_id"' in tunnels
+    assert 'name="bridge_platform"' in tunnels
+    assert 'value="windows"' in tunnels
+    assert 'value="linux"' in tunnels
+    assert 'name="public_domain"' in tunnels
+    assert 'post("/api/tunnels/save"' in handlers
+    assert "/api/tunnels/${encodeURIComponent(id)}/bridge-config" in handlers
+    assert "/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-bundle" in handlers
+    assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-bundle" in handlers
+    assert 'api("/api/tunnels/portal-config")' in handlers
+    assert 'post("/api/tunnels/apply"' in handlers
+    assert "downloadText" in handlers
+    assert 'import { api, download, downloadText, post } from "../api.js";' in user_node_actions
+
+
 def test_frontend_v2_removes_legacy_single_file_assets():
     assert not (ASSETS / "app.js").exists()
     assert not (ASSETS / "style.css").exists()

@@ -1,7 +1,7 @@
-import { post } from "../api.js";
+import { api, download, downloadText, post } from "../api.js";
 import { openForm } from "../dom.js";
 import { state } from "../state.js";
-import { closeForms, fillNodeForm, fillUserForm } from "./forms.js";
+import { closeForms, fillNodeForm, fillTunnelForm, fillUserForm } from "./forms.js";
 
 
 export function applyNodePayload(out) {
@@ -16,6 +16,18 @@ export function applyNodePayload(out) {
 }
 
 
+export function applyTunnelPayload(out) {
+  if (out?.tunnels) state.data.tunnels = out.tunnels;
+  if (out?.tunnel && !out.tunnels) {
+    const tunnels = state.data.tunnels || [];
+    const index = tunnels.findIndex((item) => item.id === out.tunnel.id);
+    state.data.tunnels = index >= 0
+      ? tunnels.map((item) => item.id === out.tunnel.id ? out.tunnel : item)
+      : [...tunnels, out.tunnel];
+  }
+}
+
+
 export async function handleUserNodeAction(button, app, { runAction }) {
   const actionName = button.dataset.action;
   if (actionName === "user-create-sheet") {
@@ -23,7 +35,7 @@ export async function handleUserNodeAction(button, app, { runAction }) {
     openForm(app, ".user-create-form");
     return true;
   }
-  if (actionName === "user-form-close" || actionName === "node-form-close" || actionName === "plan-form-close") {
+  if (actionName === "user-form-close" || actionName === "node-form-close" || actionName === "plan-form-close" || actionName === "tunnel-form-close") {
     closeForms(app);
     return true;
   }
@@ -86,6 +98,63 @@ export async function handleUserNodeAction(button, app, { runAction }) {
     });
     return true;
   }
+  if (actionName === "tunnel-create-sheet") {
+    closeForms(app);
+    fillTunnelForm(app, {});
+    return true;
+  }
+  if (actionName === "tunnel-edit") {
+    const tunnel = (state.data.tunnels || []).find((item) => item.id === button.dataset.tunnel);
+    closeForms(app);
+    fillTunnelForm(app, tunnel);
+    return true;
+  }
+  if (actionName === "tunnel-export") {
+    const id = button.dataset.tunnel || "";
+    if (!id) return true;
+    const out = await api(`/api/tunnels/${encodeURIComponent(id)}/bridge-config`);
+    downloadText(out.filename || `${id}-xray-bridge.json`, JSON.stringify(out.config || {}, null, 2));
+    return true;
+  }
+  if (actionName === "tunnel-bundle-export") {
+    const id = button.dataset.tunnel || "";
+    const platform = button.dataset.platform || "macos";
+    if (!id) return true;
+    await download(`/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-bundle`);
+    return true;
+  }
+  if (actionName === "tunnel-shared-bundle-export") {
+    const bridgeId = button.dataset.bridge || "";
+    const platform = button.dataset.platform || "macos";
+    if (!bridgeId) return true;
+    await download(`/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-bundle`);
+    return true;
+  }
+  if (actionName === "tunnel-portal-export") {
+    const out = await api("/api/tunnels/portal-config");
+    downloadText(out.filename || "fake-ui-tunnel-portal.json", JSON.stringify(out.config || {}, null, 2));
+    return true;
+  }
+  if (actionName === "tunnel-portal-apply") {
+    if (!confirm("确认把当前穿透入口应用到 Xray？应用前会测试配置，失败会回滚。")) return true;
+    await runAction(async () => {
+      const out = await post("/api/tunnels/apply", {});
+      applyTunnelPayload(out);
+      return out.message || "穿透入口已应用";
+    });
+    return true;
+  }
+  if (actionName === "tunnel-action") {
+    const action = button.dataset.tunnelAction || "";
+    if (action === "delete" && !confirm(`确认删除穿透节点 ${button.dataset.tunnel || ""}？`)) return true;
+    await runAction(async () => {
+      const out = await post("/api/tunnels/action", { id: button.dataset.tunnel || "", action });
+      applyTunnelPayload(out);
+      if (action === "delete") return "穿透节点已删除";
+      return "穿透节点已更新";
+    });
+    return true;
+  }
   return false;
 }
 
@@ -112,6 +181,14 @@ export async function handleUserNodeForm(form, data, { runAction }) {
       const out = await post("/api/nodes/save", data);
       applyNodePayload(out);
       return "节点已保存，出口信息已同步";
+    });
+    return true;
+  }
+  if (form.dataset.form === "tunnel-save") {
+    await runAction(async () => {
+      const out = await post("/api/tunnels/save", data);
+      applyTunnelPayload(out);
+      return "穿透节点已保存";
     });
     return true;
   }

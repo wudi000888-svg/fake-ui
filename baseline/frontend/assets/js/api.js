@@ -38,6 +38,21 @@ export async function download(path, filename = "") {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  link.download = filename || (match ? match[1] : "");
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+
+export function downloadText(filename, text, contentType = "application/json") {
+  const blob = new Blob([text], { type: `${contentType}; charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
   link.download = filename;
   document.body.appendChild(link);
   link.click();

@@ -6,6 +6,7 @@ import { renderAdminHy2 } from "./admin/hy2.js";
 import { renderAdminPlans } from "./admin/plans.js";
 import { renderAdminDashboard, renderAdminSimplePage } from "./admin/simple.js";
 import { renderAdminSettings } from "./admin/settings.js";
+import { renderAdminTunnels } from "./admin/tunnels.js";
 import { renderAdminUsers } from "./admin/users.js";
 import { renderUserAccount } from "./user/account.js";
 import { renderUserDashboard } from "./user/dashboard.js";
@@ -27,6 +28,7 @@ export function pageForState(state) {
   if (state.route === "account" || state.route === "settings") return renderAdminSettings(data);
   if (state.route === "users") return renderAdminUsers(data);
   if (state.route === "nodes") return renderAdminNodes(data);
+  if (state.route === "tunnels") return renderAdminTunnels(data);
   if (state.route === "plans") return renderAdminPlans(data);
   if (state.route === "links") return renderAdminSimplePage("订阅", state.data.links || []);
   if (state.route === "requests") return renderAdminSimplePage("申请", state.data.registrations || []);
