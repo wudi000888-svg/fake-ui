@@ -1,5 +1,6 @@
 import subprocess
 import tarfile
+import zipfile
 from pathlib import Path
 
 
@@ -24,8 +25,10 @@ def test_package_code_excludes_runtime_data_and_macos_pax_headers(tmp_path):
             pax_headers.update(member.pax_headers)
 
     assert "baseline/app_version.py" in names
+    assert "scripts/package-bridge-client.py" in names
     assert "docs/releases/v3.0.0.md" in names
     assert "docs/releases/v3.0.1.md" in names
+    assert "docs/releases/bridge-client-v0.1.0.md" in names
     assert not any(name == ".env" or name.startswith("data/") for name in names)
     assert not any(name.startswith("generated/") or name.startswith(".git/") for name in names)
     assert not any(name.startswith("artifacts/") or name.startswith(".demo-runtime/") for name in names)
@@ -75,3 +78,55 @@ def test_package_code_works_from_source_tree_without_git_metadata(tmp_path):
     assert ".demo-runtime/fake-ui.db" not in names
     assert ".superpowers/local.json" not in names
     assert "__pycache__/x.pyc" not in names
+
+
+def test_package_bridge_client_builds_separate_generic_release_assets(tmp_path):
+    output_dir = tmp_path / "bridge-client"
+
+    subprocess.run(
+        ["python3", "scripts/package-bridge-client.py", str(output_dir), "--version", "0.1.0"],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    macos = output_dir / "fake-ui-bridge-client-v0.1.0-macos.zip"
+    linux = output_dir / "fake-ui-bridge-client-v0.1.0-linux.tar.gz"
+    windows = output_dir / "fake-ui-bridge-client-v0.1.0-windows.zip"
+    assert macos.exists()
+    assert linux.exists()
+    assert windows.exists()
+
+    with zipfile.ZipFile(macos) as archive:
+        names = set(archive.namelist())
+        readme = archive.read("fake-ui-bridge-client/README.md").decode("utf-8")
+        metadata = archive.read("fake-ui-bridge-client/bridge-dashboard.json").decode("utf-8")
+
+    assert "fake-ui-bridge-client/bridge-dashboard.py" in names
+    assert "fake-ui-bridge-client/open-dashboard.sh" in names
+    assert "fake-ui-bridge-client/start-bridge.sh" in names
+    assert "fake-ui-bridge-client/stop-bridge.sh" in names
+    assert "fake-ui-bridge-client/xray-bridge.example.json" in names
+    assert "127.0.0.1:19090" in readme
+    assert "从 fake-ui 面板导入" in readme
+    assert "client-template" in metadata
+
+    with tarfile.open(linux, "r:gz") as archive:
+        linux_names = set(archive.getnames())
+    assert "fake-ui-bridge-client/bridge-dashboard.py" in linux_names
+    assert "fake-ui-bridge-client/start-bridge.sh" in linux_names
+
+    with zipfile.ZipFile(windows) as archive:
+        windows_names = set(archive.namelist())
+        windows_readme = archive.read("fake-ui-bridge-client/README.md").decode("utf-8")
+    assert "fake-ui-bridge-client/open-dashboard.ps1" in windows_names
+    assert "fake-ui-bridge-client/start-bridge.ps1" in windows_names
+    assert "fake-ui-bridge-client/stop-bridge.ps1" in windows_names
+    assert "PowerShell" in windows_readme
+
+    for archive in [macos, linux, windows]:
+        raw = archive.read_bytes()
+        assert b"guangyuego" not in raw
+        assert b"43.134.13.43" not in raw
+        assert b"server-private-key" not in raw
