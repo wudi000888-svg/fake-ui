@@ -401,6 +401,7 @@ import argparse
 import html
 import json
 import os
+import re
 import socket
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -466,6 +467,16 @@ def xray_config_status(base_dir, metadata):
     return {"ok": True, "path": str(path), "message": "valid json"}
 
 
+def xray_config_preview(base_dir, metadata, limit=2600):
+    rel_path = (metadata.get("xray_config") or {}).get("path") or "xray-bridge.json"
+    path = base_dir / rel_path
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    return json.dumps(data, indent=2, ensure_ascii=False)[:limit]
+
+
 def expand_log_path(base_dir, path):
     raw = str(path or "")
     if raw.startswith("~"):
@@ -505,11 +516,30 @@ def collect_status(metadata, base_dir):
         "xray_config": xray_config_status(base_dir, metadata),
         "services": services,
         "logs": collect_logs(metadata, base_dir),
+        "config_preview": xray_config_preview(base_dir, metadata),
     }
 
 
 def status_badge(ok):
     return "ok" if ok else "warn"
+
+
+def redact_sensitive(value):
+    text = str(value or "")
+    text = re.sub(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}", "[redacted-uuid]", text)
+    text = re.sub(r'("(?:privateKey|publicKey|shortId|shortIds|pairing_token)"\s*:\s*)("[^"]*"|\[[^\]]*\])', r'\1"[redacted-secret]"', text)
+    text = re.sub(r"(?i)(pairing[_-]?token\s*[=:]\s*)[^\s\"']+", r"\1[redacted-secret]", text)
+    text = re.sub(r"(?i)((?:private|public)[_-]?key\s*[=:]\s*)[^\s\"']+", r"\1[redacted-secret]", text)
+    text = re.sub(r"(?i)(short[_-]?id\s*[=:]\s*)[0-9a-f]{6,32}", r"\1[redacted-secret]", text)
+    return text
+
+
+def esc(value):
+    return html.escape(redact_sensitive(value))
+
+
+def badge_html(ok, text):
+    return f"<span class='status-badge {status_badge(bool(ok))}'>{esc(text or 'unknown')}</span>"
 
 
 def render_dashboard(status):
@@ -518,6 +548,7 @@ def render_dashboard(status):
     xray_config = status.get("xray_config") or {}
     services = status.get("services") or []
     logs = status.get("logs") or []
+    dashboard = metadata.get("dashboard") or {}
     rows = []
     for service in services:
         probe = service.get("local_reachable") or {}
@@ -525,23 +556,30 @@ def render_dashboard(status):
         local_url = service.get("local_url") or service.get("local") or "-"
         rows.append(
             "<tr>"
-            f"<td>{html.escape(str(service.get('name') or service.get('id') or ''))}</td>"
-            f"<td>{html.escape(str(service.get('kind') or ''))}</td>"
-            f"<td>{html.escape(str(local_url))}</td>"
-            f"<td>{html.escape(str(public_url))}</td>"
-            f"<td><span class='{status_badge(bool(probe.get('ok')))}'>{html.escape(str(probe.get('message') or ''))}</span></td>"
+            f"<td><strong>{esc(service.get('name') or service.get('id') or '')}</strong><span>{esc(service.get('id') or '')}</span></td>"
+            f"<td>{esc(service.get('kind') or '')}</td>"
+            f"<td><code>{esc(local_url)}</code></td>"
+            f"<td><code>{esc(public_url)}</code></td>"
+            f"<td>{badge_html(bool(probe.get('ok')), probe.get('message') or '')}</td>"
             "</tr>"
         )
     runtime_name = (metadata.get("runtime") or {}).get("name") or ""
     restart_command = (metadata.get("runtime") or {}).get("restart_command") or ""
+    log_command = (metadata.get("runtime") or {}).get("log_command") or ""
     log_blocks = []
     for item in logs:
         state = "found" if item.get("exists") else "missing"
         tail = item.get("tail") or ""
         log_blocks.append(
-            f"<details><summary>{html.escape(str(item.get('path') or ''))} · {state}</summary>"
-            f"<pre>{html.escape(str(tail[-1200:]))}</pre></details>"
+            f"<details><summary>{esc(item.get('path') or '')} · {esc(state)}</summary>"
+            f"<pre>{esc(tail[-1600:])}</pre></details>"
         )
+    service_count = len(services)
+    public_count = len([item for item in services if item.get("public_url")])
+    log_count = len([item for item in logs if item.get("exists")])
+    config_preview = status.get("config_preview") or ""
+    if not config_preview:
+        config_preview = xray_config.get("message") or "No config preview available"
     html_text = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -549,49 +587,101 @@ def render_dashboard(status):
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>fake-ui Bridge Dashboard</title>
   <style>
-    body {{ margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #17202a; background: #f5f7fa; }}
-    header {{ padding: 22px 28px; background: #101820; color: #fff; }}
-    main {{ max-width: 1100px; margin: 0 auto; padding: 22px; }}
-    section {{ background: #fff; border: 1px solid #d8dee6; border-radius: 8px; padding: 18px; margin-bottom: 16px; }}
-    h1, h2 {{ margin: 0 0 10px; }}
+    :root {{ --bg: #f4f8fb; --surface: #ffffff; --surface-soft: #f8fbfd; --ink: #101828; --muted: #667085; --line: #dde6ee; --primary: #2563eb; --primary-soft: #eaf1ff; --accent: #14b8a6; --accent-soft: #e7faf7; --success: #12805c; --warning: #b7791f; --danger: #c2413b; --radius: 8px; --shadow: 0 10px 30px rgba(16, 24, 40, 0.08); }}
+    * {{ box-sizing: border-box; }}
+    body {{ margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }}
+    .app-shell {{ min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); }}
+    .side-nav {{ position: sticky; top: 0; height: 100vh; display: grid; grid-template-rows: auto 1fr auto; gap: 16px; padding: 16px 14px; background: rgba(255,255,255,.96); border-right: 1px solid var(--line); }}
+    .brand {{ padding: 8px 10px 14px; border-bottom: 1px solid var(--line); }}
+    .brand strong {{ display: block; font-size: 20px; }}
+    .brand span, .nav-link, .section-kicker, td span {{ color: var(--muted); font-size: 12px; }}
+    .nav-stack {{ display: grid; align-content: start; gap: 6px; }}
+    .nav-link {{ display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 10px; border-radius: var(--radius); text-decoration: none; color: var(--ink); font-weight: 700; }}
+    .nav-link.active, .nav-link:hover {{ background: var(--primary-soft); color: var(--primary); }}
+    .workspace {{ min-width: 0; }}
+    .topbar {{ position: sticky; top: 0; z-index: 5; min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 24px; background: rgba(255,255,255,.94); border-bottom: 1px solid var(--line); }}
+    main {{ max-width: 1180px; margin: 0 auto; padding: 24px; }}
+    section {{ margin-bottom: 18px; }}
+    .panel {{ background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; }}
+    h1, h2, h3, p {{ margin-top: 0; }}
+    h1 {{ margin-bottom: 2px; font-size: 22px; }}
+    h2 {{ margin-bottom: 12px; font-size: 16px; }}
+    .metric-grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }}
+    .metric {{ background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }}
+    .metric span {{ color: var(--muted); font-size: 12px; }}
+    .metric strong {{ display: block; margin-top: 4px; font-size: 22px; }}
+    .status-badge {{ display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 999px; font-weight: 800; font-size: 12px; }}
+    .status-badge.ok {{ color: var(--success); background: #dcfce7; }}
+    .status-badge.warn {{ color: var(--warning); background: #fff3cf; }}
     table {{ width: 100%; border-collapse: collapse; }}
-    th, td {{ text-align: left; padding: 10px; border-bottom: 1px solid #e6ebf0; vertical-align: top; }}
-    code {{ background: #eef2f6; border-radius: 4px; padding: 2px 5px; }}
-    pre {{ max-height: 220px; overflow: auto; background: #101820; color: #eef2f6; border-radius: 6px; padding: 10px; white-space: pre-wrap; }}
-    summary {{ cursor: pointer; padding: 6px 0; }}
-    .ok {{ color: #0a7a45; font-weight: 700; }}
-    .warn {{ color: #a94600; font-weight: 700; }}
+    th, td {{ text-align: left; padding: 11px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }}
+    th {{ color: var(--muted); font-size: 12px; text-transform: uppercase; }}
+    td strong, td span {{ display: block; }}
+    code {{ background: var(--surface-soft); border: 1px solid var(--line); border-radius: 6px; padding: 2px 5px; }}
+    pre {{ max-height: 260px; overflow: auto; background: #101828; color: #edf5ff; border-radius: var(--radius); padding: 12px; white-space: pre-wrap; font-size: 12px; }}
+    summary {{ cursor: pointer; padding: 7px 0; font-weight: 700; }}
+    .setup-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
+    .setup-item {{ border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--surface-soft); }}
+    .mono-line {{ word-break: break-all; }}
+    @media (max-width: 860px) {{ .app-shell {{ grid-template-columns: 1fr; }} .side-nav {{ position: static; height: auto; grid-template-rows: auto; }} .nav-stack {{ display: flex; overflow-x: auto; }} .metric-grid, .setup-grid {{ grid-template-columns: 1fr; }} .topbar {{ align-items: flex-start; flex-direction: column; }} }}
   </style>
 </head>
 <body>
-  <header>
-    <h1>fake-ui Bridge Dashboard</h1>
-    <div>{html.escape(metadata.get('bundle_kind', 'bridge'))} · {html.escape(metadata.get('platform', 'unknown'))}</div>
-  </header>
-  <main>
-    <section>
-      <h2>Runtime</h2>
-      <p>Service: <code>{html.escape(runtime_name)}</code></p>
-      <p>Status: <span class="{status_badge(bool(runtime.get('ok')))}">{html.escape(str(runtime.get('message') or 'unknown'))}</span></p>
-      <p>Restart: <code>{html.escape(restart_command)}</code></p>
-      <p>Config: <code>{html.escape(str(xray_config.get('path') or ''))}</code> <span class="{status_badge(bool(xray_config.get('ok')))}">{html.escape(str(xray_config.get('message') or ''))}</span></p>
-    </section>
-    <section>
-      <h2>Services</h2>
-      <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Local</th><th>Public</th><th>Probe</th></tr></thead>
-        <tbody>{''.join(rows)}</tbody>
-      </table>
-    </section>
-    <section>
-      <h2>Logs</h2>
-      {''.join(log_blocks)}
-    </section>
-    <section>
-      <h2>API</h2>
-      <p><code>GET /status.json</code></p>
-    </section>
-  </main>
+  <div class="app-shell">
+    <aside class="side-nav">
+      <div class="brand"><strong>fake-ui</strong><span>Bridge Agent</span></div>
+      <nav class="nav-stack">
+        <a class="nav-link active" href="#overview-section">Overview</a>
+        <a class="nav-link" href="#services-section">Services</a>
+        <a class="nav-link" href="#setup-section">Setup</a>
+        <a class="nav-link" href="#logs-section">Logs</a>
+        <a class="nav-link" href="#api-section">API</a>
+      </nav>
+      <div class="section-kicker">Local only · {esc(dashboard.get('host') or DEFAULT_HOST)}:{esc(dashboard.get('port') or DEFAULT_PORT)}</div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <div><h1>Bridge Agent</h1><span>{esc(metadata.get('bundle_kind', 'bridge'))} · {esc(metadata.get('platform', 'unknown'))} · {esc(metadata.get('bridge_id', ''))}</span></div>
+        {badge_html(bool(runtime.get('ok')), runtime.get('message') or 'runtime unknown')}
+      </header>
+      <main>
+        <section id="overview-section" class="overview-section">
+          <div class="metric-grid">
+            <div class="metric"><span>Runtime</span><strong>{esc('running' if runtime.get('ok') else 'check')}</strong></div>
+            <div class="metric"><span>Config</span><strong>{esc(xray_config.get('message') or 'unknown')}</strong></div>
+            <div class="metric"><span>Services</span><strong>{service_count}</strong></div>
+            <div class="metric"><span>Public URLs</span><strong>{public_count}</strong></div>
+          </div>
+        </section>
+        <section id="services-section" class="services-section panel">
+          <h2>Services</h2>
+          <table class="service-table">
+            <thead><tr><th>Name</th><th>Type</th><th>Local</th><th>Public</th><th>Probe</th></tr></thead>
+            <tbody>{''.join(rows) or '<tr><td colspan="5">No services configured</td></tr>'}</tbody>
+          </table>
+        </section>
+        <section id="setup-section" class="setup-section panel">
+          <h2>Setup</h2>
+          <div class="setup-grid">
+            <div class="setup-item"><span class="section-kicker">Service</span><p><code>{esc(runtime_name)}</code></p></div>
+            <div class="setup-item"><span class="section-kicker">Restart</span><p class="mono-line"><code>{esc(restart_command or 'not available')}</code></p></div>
+            <div class="setup-item"><span class="section-kicker">Logs</span><p class="mono-line"><code>{esc(log_command or 'not available')}</code></p></div>
+            <div class="setup-item"><span class="section-kicker">Config</span><p><code>{esc(xray_config.get('path') or '')}</code> {badge_html(bool(xray_config.get('ok')), xray_config.get('message') or '')}</p></div>
+          </div>
+          <pre>{esc(config_preview)}</pre>
+        </section>
+        <section id="logs-section" class="logs-section panel">
+          <h2>Logs</h2>
+          <p class="section-kicker">{log_count} readable log file(s)</p>
+          {''.join(log_blocks) or '<p>No logs configured</p>'}
+        </section>
+        <section id="api-section" class="api-section panel">
+          <h2>API</h2>
+          <p><code>GET /status.json</code></p>
+        </section>
+      </main>
+    </div>
+  </div>
 </body>
 </html>"""
     return html_text.encode("utf-8")

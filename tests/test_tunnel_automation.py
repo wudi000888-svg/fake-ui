@@ -1016,6 +1016,80 @@ def test_bridge_dashboard_serves_local_status_json(tmp_path):
     assert payload["services"][0]["local_reachable"]["ok"] is False
 
 
+def test_bridge_dashboard_script_uses_fake_ui_shell_and_redacts_sensitive_values():
+    import tunnel_bridge_bundle
+
+    script = tunnel_bridge_bundle.dashboard_script()
+
+    for token in ["--bg", "--surface", "--primary", "--accent", "--radius"]:
+        assert token in script
+    for marker in [
+        "app-shell",
+        "side-nav",
+        "overview-section",
+        "services-section",
+        "setup-section",
+        "logs-section",
+        "api-section",
+        "metric-grid",
+        "service-table",
+        "GET /status.json",
+    ]:
+        assert marker in script
+    assert "def redact_sensitive" in script
+    assert "def xray_config_preview" in script
+    assert "pairing_token" in script
+    assert "privateKey" in script
+    assert "publicKey" in script
+    assert "shortId" in script
+
+
+def test_bridge_dashboard_render_redacts_logs_and_config_snippets(tmp_path):
+    import tunnel_bridge_bundle
+
+    script_path = tmp_path / "bridge_dashboard_runtime.py"
+    script_path.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("bridge_dashboard_runtime", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    secret_uuid = "11111111-1111-4111-8111-111111111111"
+    secret_token = "pairing_token=super-secret-token"
+    secret_public = '"publicKey": "server-public-key"'
+    secret_private = '"privateKey": "server-private-key"'
+    secret_short = '"shortId": "0123456789abcdef"'
+    status = {
+        "metadata": {
+            "bundle_kind": "dedicated",
+            "bridge_id": "office-api",
+            "platform": "linux",
+            "dashboard": {"host": "127.0.0.1", "port": 19090},
+            "runtime": {"name": "fake-ui-tunnel-office-api.service", "restart_command": "sudo systemctl restart fake-ui-tunnel-office-api.service"},
+            "services": [],
+        },
+        "runtime": {"ok": True, "message": "running"},
+        "xray_config": {"ok": True, "path": str(tmp_path / "xray-bridge.json"), "message": "valid json"},
+        "services": [],
+        "logs": [
+            {
+                "path": str(tmp_path / "bridge.err.log"),
+                "exists": True,
+                "tail": f"{secret_uuid}\n{secret_token}\n{secret_public}\n{secret_private}\n{secret_short}",
+            }
+        ],
+        "config_preview": f"{secret_uuid}\n{secret_public}\n{secret_private}\n{secret_short}",
+    }
+
+    html = module.render_dashboard(status).decode("utf-8")
+
+    assert secret_uuid not in html
+    assert "super-secret-token" not in html
+    assert "server-public-key" not in html
+    assert "server-private-key" not in html
+    assert "0123456789abcdef" not in html
+    assert "[redacted" in html
+
+
 def test_bridge_dashboard_accepts_manual_client_runtime(tmp_path):
     import tunnel_bridge_bundle
 
