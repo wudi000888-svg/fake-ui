@@ -514,6 +514,34 @@ def import_json_file(base_dir, filename, content):
     return clean
 
 
+def restart_runtime(metadata, base_dir):
+    runtime = metadata.get("runtime") or {}
+    command = str(runtime.get("restart_command") or "").strip()
+    if not command:
+        raise RuntimeError("未配置重启命令")
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=base_dir,
+            shell=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=20,
+        )
+    except subprocess.TimeoutExpired as exc:
+        output = (exc.stdout or "").strip() if isinstance(exc.stdout, str) else ""
+        raise RuntimeError(f"重启命令超时：{output[:800]}") from exc
+    except Exception as exc:
+        raise RuntimeError(str(exc)) from exc
+    output = (proc.stdout or "").strip()
+    if proc.returncode != 0:
+        detail = output[:1200] if output else f"exit {proc.returncode}"
+        raise RuntimeError(f"重启失败：{detail}")
+    message = output[:1200] if output else "重启命令已执行"
+    return {"ok": True, "message": message}
+
+
 def expand_log_path(base_dir, path):
     raw = str(path or "")
     if raw.startswith("~"):
@@ -716,6 +744,14 @@ def render_dashboard(status):
       </header>
       <main>
         <section id="overview-section" class="overview-section">
+          <div class="panel control-panel">
+            <h2>本机控制</h2>
+            <div class="button-row">
+              <button class="btn" type="button" onclick="restartBridge()">重启 Bridge</button>
+              <button class="btn secondary" type="button" onclick="location.reload()">刷新状态</button>
+            </div>
+            <div id="restart-result" class="notice">导入或更新配置后，点击重启 Bridge 让新配置生效。</div>
+          </div>
           <div class="metric-grid">
             <div class="metric"><span>运行状态</span><strong>{esc(runtime_text)}</strong></div>
             <div class="metric"><span>Xray 配置</span><strong>{esc(config_text)}</strong></div>
@@ -798,6 +834,7 @@ def render_dashboard(status):
           <h2>API</h2>
           <p><code>GET /status.json</code></p>
           <p><code>POST /api/import</code></p>
+          <p><code>POST /api/restart</code></p>
         </section>
       </main>
     </div>
@@ -820,6 +857,23 @@ def render_dashboard(status):
         result.textContent = `已导入 ${{payload.filename}}，请按需重启 bridge。`;
       }} catch (error) {{
         result.textContent = `导入失败：${{error.message}}`;
+      }}
+    }}
+    async function restartBridge() {{
+      const result = document.getElementById('restart-result');
+      result.textContent = '正在重启 Bridge...';
+      try {{
+        const response = await fetch('/api/restart', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify({{}})
+        }});
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '重启失败');
+        result.textContent = payload.message || '重启命令已执行，正在刷新状态...';
+        window.setTimeout(() => location.reload(), 1200);
+      }} catch (error) {{
+        result.textContent = `重启失败：${{error.message}}`;
       }}
     }}
   </script>
@@ -866,6 +920,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(403, "text/plain; charset=utf-8", b"forbidden")
             return
         path = urlparse(self.path).path
+        if path == "/api/restart":
+            try:
+                result = restart_runtime(self.metadata, self.base_dir)
+                self.send_json(200, result)
+            except Exception as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            return
         if path != "/api/import":
             self.send_bytes(404, "text/plain; charset=utf-8", b"not found")
             return

@@ -1167,6 +1167,74 @@ def test_bridge_dashboard_imports_local_json_files(tmp_path):
     assert excinfo.value.code == 400
 
 
+def test_bridge_dashboard_restarts_runtime_from_local_api(tmp_path):
+    import tunnel_bridge_bundle
+
+    metadata = tunnel_bridge_bundle.dashboard_metadata(
+        "dedicated",
+        "office-api",
+        "linux",
+        [
+            {
+                "id": "office-api",
+                "kind": "public_https",
+                "name": "Office API",
+                "public_domain": "api.example.com",
+                "portal_port": 18082,
+                "target_host": "127.0.0.1",
+                "target_port": 9,
+            }
+        ],
+    )
+    metadata["runtime"]["restart_command"] = f"{sys.executable} -c \"from pathlib import Path; Path('restart-marker').write_text('ok')\""
+    (tmp_path / "bridge-dashboard.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (tmp_path / "xray-bridge.json").write_text("{}", encoding="utf-8")
+    script = tmp_path / "bridge-dashboard.py"
+    script.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    proc = subprocess.Popen(
+        [sys.executable, str(script), "--host", "127.0.0.1", "--port", str(port)],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        for _ in range(40):
+            try:
+                with opener.open(f"http://127.0.0.1:{port}/", timeout=1) as response:
+                    page = response.read().decode("utf-8")
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise AssertionError("dashboard did not start")
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/restart",
+            data=b"{}",
+            headers={"Content-Type": "application/json", "Host": f"127.0.0.1:{port}"},
+            method="POST",
+        )
+        with opener.open(request, timeout=2) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+    assert "重启 Bridge" in page
+    assert "restartBridge" in page
+    assert "POST /api/restart" in page
+    assert payload["ok"] is True
+    assert payload["message"]
+    assert (tmp_path / "restart-marker").read_text(encoding="utf-8") == "ok"
+
+
 def test_bridge_dashboard_script_uses_fake_ui_shell_and_redacts_sensitive_values():
     import tunnel_bridge_bundle
 
@@ -1187,10 +1255,13 @@ def test_bridge_dashboard_script_uses_fake_ui_shell_and_redacts_sensitive_values
         "service-table",
         "function importConfig",
         "fetch('/api/import'",
+        "function restartBridge",
+        "fetch('/api/restart'",
         "GET /status.json",
+        "POST /api/restart",
     ]:
         assert marker in script
-    for label in ["概览", "服务状态", "导入配置", "使用说明", "日志/调试", "选择 JSON 文件", "常见问题"]:
+    for label in ["概览", "服务状态", "导入配置", "使用说明", "日志/调试", "选择 JSON 文件", "重启 Bridge", "常见问题"]:
         assert label in script
     assert "def redact_sensitive" in script
     assert "def xray_config_preview" in script
