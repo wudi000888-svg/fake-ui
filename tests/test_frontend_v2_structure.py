@@ -179,8 +179,10 @@ def test_frontend_exposes_tunnel_management_screen():
     assert 'data-form="tunnel-save"' in tunnels
     assert 'data-action="tunnel-export"' in tunnels
     assert 'data-action="tunnel-bundle-export"' in tunnels
+    assert 'data-action="tunnel-agent-bundle-export"' in tunnels
     assert 'data-platform="${esc(platform)}"' in tunnels
     assert 'data-action="tunnel-shared-bundle-export"' in tunnels
+    assert 'data-action="tunnel-shared-agent-bundle-export"' in tunnels
     assert 'data-action="tunnel-portal-export"' in tunnels
     assert 'data-action="tunnel-portal-apply"' in tunnels
     assert 'name="kind"' in tunnels
@@ -196,11 +198,25 @@ def test_frontend_exposes_tunnel_management_screen():
     assert 'post("/api/tunnels/save"' in handlers
     assert "/api/tunnels/${encodeURIComponent(id)}/bridge-config" in handlers
     assert "/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-bundle" in handlers
+    assert "/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-agent-bundle" in handlers
     assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-bundle" in handlers
+    assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-agent-bundle" in handlers
     assert 'api("/api/tunnels/portal-config")' in handlers
     assert 'post("/api/tunnels/apply"' in handlers
     assert "downloadText" in handlers
     assert 'import { api, download, downloadText, post } from "../api.js";' in user_node_actions
+
+
+def test_tunnel_cards_separate_dedicated_and_shared_paired_agent_actions():
+    tunnels = read_asset("js/pages/admin/tunnels.js")
+
+    assert 'const dedicatedButton = tunnel.bridge_mode === "shared"' in tunnels
+    assert 'const staticBundleButton = tunnel.bridge_mode === "shared"' in tunnels
+    assert '? ""' in tunnels
+    assert 'data-action="tunnel-agent-bundle-export"' in tunnels
+    assert "${dedicatedButton}" in tunnels
+    assert "${staticBundleButton}" in tunnels
+    assert 'data-action="tunnel-shared-agent-bundle-export"' in tunnels
 
 
 def test_frontend_v2_removes_legacy_single_file_assets():

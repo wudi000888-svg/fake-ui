@@ -1,10 +1,14 @@
 import json
+import importlib.util
 import socket
 import subprocess
 import sys
 import tarfile
+import threading
 import time
+import urllib.error
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from pathlib import Path
 
@@ -15,6 +19,58 @@ ROOT = Path(__file__).resolve().parents[1]
 BASELINE = ROOT / "baseline"
 if str(BASELINE) not in sys.path:
     sys.path.insert(0, str(BASELINE))
+
+
+def sample_public_tunnel(**overrides):
+    tunnel = {
+        "id": "office-api",
+        "kind": "public_https",
+        "name": "Office API",
+        "public_domain": "api.example.com",
+        "portal_port": 18082,
+        "target_host": "127.0.0.1",
+        "target_port": 5000,
+        "client_id": "11111111-1111-4111-8111-111111111111",
+        "flow": "xtls-rprx-vision",
+        "bridge_mode": "dedicated",
+        "bridge_id": "office-api",
+        "bridge_platform": "linux",
+    }
+    tunnel.update(overrides)
+    return tunnel
+
+
+def sample_reality_profile():
+    return {
+        "server_name": "www.cloudflare.com",
+        "address": "vless.example.com",
+        "port": 443,
+        "public_key": "server-public-key",
+        "short_id": "0123456789abcdef",
+    }
+
+
+def read_tar_texts(content):
+    with tarfile.open(fileobj=BytesIO(content), mode="r:gz") as tar:
+        texts = {}
+        for member in tar.getmembers():
+            if member.isfile():
+                texts[member.name] = tar.extractfile(member).read().decode("utf-8")
+    return texts
+
+
+def fake_pairing(token="raw-pairing-token"):
+    return {
+        "pairing_token": token,
+        "record": {
+            "token_id": "pair_test_token",
+            "bridge_id": "office-api",
+            "bundle_kind": "dedicated",
+            "platform": "linux",
+            "agent_id": "agent_test",
+            "capabilities": ["bootstrap", "local_status"],
+        },
+    }
 
 
 def test_normalize_tunnel_auto_allocates_public_domain_fields():
@@ -581,6 +637,349 @@ def test_shared_bridge_agent_bundle_dashboard_lists_all_services():
     assert "GET /status.json" in dashboard
 
 
+def test_static_bundles_do_not_include_agent_pairing_bootstrap_assets():
+    import tunnel_bridge_bundle
+    import tunnel_config_builder
+
+    tunnel = sample_public_tunnel()
+    bridge_cfg = tunnel_config_builder.build_bridge_config(tunnel, sample_reality_profile())
+
+    dedicated_texts = read_tar_texts(tunnel_bridge_bundle.build_bundle(tunnel, bridge_cfg, "linux"))
+    shared_texts = read_tar_texts(
+        tunnel_bridge_bundle.build_agent_bundle(
+            "office-linux",
+            [sample_public_tunnel(bridge_mode="shared", bridge_id="office-linux")],
+            tunnel_config_builder.build_shared_bridge_config(
+                [sample_public_tunnel(bridge_mode="shared", bridge_id="office-linux")],
+                sample_reality_profile(),
+            ),
+            "linux",
+        )
+    )
+
+    assert not any(name.endswith("/agent-profile.json") for name in dedicated_texts)
+    assert not any(name.endswith("/bootstrap-agent.py") for name in dedicated_texts)
+    assert not any(name.endswith("/agent-profile.json") for name in shared_texts)
+    assert not any(name.endswith("/bootstrap-agent.py") for name in shared_texts)
+    assert "agent-profile.json" in dedicated_texts["office-api-linux-bridge/install-linux.sh"]
+    assert "bootstrap-agent.py" in dedicated_texts["office-api-linux-bridge/install-linux.sh"]
+    assert "agent-profile.json" in shared_texts["office-linux-linux-bridge/install-linux.sh"]
+    assert "bootstrap-agent.py" in shared_texts["office-linux-linux-bridge/install-linux.sh"]
+
+
+def test_paired_dedicated_agent_bundle_contains_profile_bootstrap_and_no_extra_raw_token():
+    import tunnel_bridge_bundle
+
+    tunnel = sample_public_tunnel()
+    pairing = fake_pairing("secret-token-dedicated")
+
+    content = tunnel_bridge_bundle.build_paired_bundle(
+        tunnel,
+        pairing,
+        "https://panel.example.test",
+        "linux",
+    )
+    texts = read_tar_texts(content)
+    root = "office-api-linux-bridge"
+
+    assert f"{root}/agent-profile.json" in texts
+    assert f"{root}/bootstrap-agent.py" in texts
+    assert f"{root}/bridge-dashboard.py" in texts
+    assert f"{root}/bridge-dashboard.json" in texts
+    assert f"{root}/xray-bridge.json" not in texts
+    profile = json.loads(texts[f"{root}/agent-profile.json"])
+
+    assert profile["schema"] == 1
+    assert profile["panel_url"] == "https://panel.example.test"
+    assert profile["token_id"] == "pair_test_token"
+    assert profile["pairing_token"] == "secret-token-dedicated"
+    assert profile["bridge_id"] == "office-api"
+    assert profile["bundle_kind"] == "dedicated"
+    assert profile["platform"] == "linux"
+    assert profile["agent_name"] == "Office API"
+    assert profile["dashboard"] == {"host": "127.0.0.1", "port": 19090}
+    assert profile["agent_id"] == "agent_test"
+    assert profile["capabilities"] == ["bootstrap", "local_status"]
+    assert profile["reserved"] == {"agent_id": "agent_test", "capabilities": ["bootstrap", "local_status"]}
+
+    bootstrap = texts[f"{root}/bootstrap-agent.py"]
+    install = texts[f"{root}/install-linux.sh"]
+    assert "/api/agents/bootstrap" in bootstrap
+    assert "agent-state.json" in bootstrap
+    assert "xray-bridge.json" in bootstrap
+    assert "bridge-dashboard.json" in bootstrap
+    assert "pairing_token" in bootstrap
+    assert "bootstrap-agent.py" in install
+    assert "agent-profile.json" in install
+    token_hits = [name for name, text in texts.items() if "secret-token-dedicated" in text]
+    assert token_hits == [f"{root}/agent-profile.json"]
+
+
+def test_paired_shared_agent_bundle_contains_shared_profile_and_installer_bootstrap():
+    import tunnel_bridge_bundle
+
+    tunnels = [
+        sample_public_tunnel(
+            id="web",
+            name="Web",
+            public_domain="web.example.com",
+            target_port=3000,
+            bridge_mode="shared",
+            bridge_id="office-linux",
+        ),
+        sample_public_tunnel(
+            id="api",
+            name="API",
+            public_domain="api.example.com",
+            portal_port=18083,
+            target_port=5000,
+            client_id="33333333-3333-4333-8333-333333333333",
+            bridge_mode="shared",
+            bridge_id="office-linux",
+        ),
+    ]
+    pairing = fake_pairing("secret-token-shared")
+    pairing["record"].update({"bridge_id": "office-linux", "bundle_kind": "shared", "platform": "windows"})
+
+    content = tunnel_bridge_bundle.build_paired_agent_bundle(
+        "office-linux",
+        tunnels,
+        pairing,
+        "https://panel.example.test/",
+        "windows",
+    )
+    texts = read_tar_texts(content)
+    root = "office-linux-windows-bridge"
+
+    assert f"{root}/agent-profile.json" in texts
+    assert f"{root}/bootstrap-agent.py" in texts
+    assert f"{root}/bridge-dashboard.py" in texts
+    assert f"{root}/bridge-dashboard.json" in texts
+    assert f"{root}/xray-bridge.json" not in texts
+    profile = json.loads(texts[f"{root}/agent-profile.json"])
+
+    assert profile["panel_url"] == "https://panel.example.test/"
+    assert profile["bridge_id"] == "office-linux"
+    assert profile["bundle_kind"] == "shared"
+    assert profile["platform"] == "windows"
+    assert profile["agent_name"] == "office-linux"
+    assert profile["pairing_token"] == "secret-token-shared"
+    assert profile["reserved"] == {"agent_id": "agent_test", "capabilities": ["bootstrap", "local_status"]}
+    assert "bootstrap-agent.py" in texts[f"{root}/install-windows.ps1"]
+    assert "agent-profile.json" in texts[f"{root}/install-windows.ps1"]
+    token_hits = [name for name, text in texts.items() if "secret-token-shared" in text]
+    assert token_hits == [f"{root}/agent-profile.json"]
+
+
+def test_bootstrap_agent_script_posts_profile_and_writes_local_state(tmp_path):
+    import tunnel_bridge_bundle
+
+    profile = {
+        "schema": 1,
+        "panel_url": "",
+        "token_id": "pair_script",
+        "pairing_token": "secret-script-token",
+        "bridge_id": "office-api",
+        "bundle_kind": "dedicated",
+        "platform": "linux",
+        "agent_name": "Office API",
+        "dashboard": {"host": "127.0.0.1", "port": 19090},
+        "agent_id": "",
+        "capabilities": [],
+    }
+    captured = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            return
+
+        def do_POST(self):
+            length = int(self.headers["Content-Length"])
+            captured["path"] = self.path
+            captured["body"] = json.loads(self.rfile.read(length).decode("utf-8"))
+            payload = {
+                "ok": True,
+                "agent": {"agent_id": "agent_script", "capabilities": ["bootstrap"]},
+                "xray_config": {"outbounds": [{"tag": "tunnel-reverse-out"}]},
+                "dashboard_metadata": {"bundle_kind": "dedicated", "bridge_id": "office-api"},
+                "install": {"service_name": "fake-ui-tunnel-office-api.service"},
+            }
+            raw = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        profile["panel_url"] = f"http://127.0.0.1:{server.server_port}"
+        (tmp_path / "agent-profile.json").write_text(json.dumps(profile), encoding="utf-8")
+        script = tmp_path / "bootstrap-agent.py"
+        script.write_text(tunnel_bridge_bundle.bootstrap_agent_script(), encoding="utf-8")
+
+        subprocess.run([sys.executable, str(script)], cwd=tmp_path, check=True, text=True, capture_output=True)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    assert captured["path"] == "/api/agents/bootstrap"
+    assert captured["body"]["token_id"] == "pair_script"
+    assert captured["body"]["pairing_token"] == "secret-script-token"
+    assert json.loads((tmp_path / "xray-bridge.json").read_text(encoding="utf-8"))["outbounds"][0]["tag"] == "tunnel-reverse-out"
+    assert json.loads((tmp_path / "bridge-dashboard.json").read_text(encoding="utf-8"))["bridge_id"] == "office-api"
+    assert json.loads((tmp_path / "agent-state.json").read_text(encoding="utf-8"))["agent"]["agent_id"] == "agent_script"
+    sanitized = json.loads((tmp_path / "agent-profile.json").read_text(encoding="utf-8"))
+    assert sanitized.get("pairing_token", "") == ""
+
+    subprocess.run([sys.executable, str(script)], cwd=tmp_path, check=True, text=True, capture_output=True)
+
+
+def test_bootstrap_agent_script_accepts_complete_local_state_with_stale_token(tmp_path):
+    import tunnel_bridge_bundle
+
+    profile = {
+        "schema": 1,
+        "panel_url": "http://127.0.0.1:9",
+        "token_id": "pair_stale",
+        "pairing_token": "already-used-token",
+        "bridge_id": "office-api",
+        "bundle_kind": "dedicated",
+        "platform": "linux",
+        "agent_name": "Office API",
+        "dashboard": {"host": "127.0.0.1", "port": 19090},
+        "reserved": {"agent_id": "agent_stale", "capabilities": ["bootstrap"]},
+    }
+    (tmp_path / "agent-profile.json").write_text(json.dumps(profile), encoding="utf-8")
+    (tmp_path / "xray-bridge.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "bridge-dashboard.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "agent-state.json").write_text("{}", encoding="utf-8")
+    script = tmp_path / "bootstrap-agent.py"
+    script.write_text(tunnel_bridge_bundle.bootstrap_agent_script(), encoding="utf-8")
+
+    subprocess.run([sys.executable, str(script)], cwd=tmp_path, check=True, text=True, capture_output=True)
+
+    sanitized = json.loads((tmp_path / "agent-profile.json").read_text(encoding="utf-8"))
+    assert sanitized["pairing_token"] == ""
+
+
+def test_paired_agent_bundle_routes_create_pairing_and_use_public_base_url(monkeypatch):
+    import api_tunnel_routes
+
+    tunnel = sample_public_tunnel()
+    shared_tunnels = [sample_public_tunnel(id="web", bridge_mode="shared", bridge_id="office-linux")]
+    created = []
+
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://panel.example.test")
+    monkeypatch.setattr(api_tunnel_routes.tunnel_catalog, "get_tunnel", lambda node_id: tunnel)
+    monkeypatch.setattr(api_tunnel_routes.tunnel_catalog, "reality_profile_for_tunnel", lambda item: sample_reality_profile())
+    monkeypatch.setattr(api_tunnel_routes.tunnel_catalog, "list_tunnels", lambda include_disabled=False: shared_tunnels)
+
+    def create_pairing(bundle_kind, bridge_id, platform, created_by="admin"):
+        created.append((bundle_kind, bridge_id, platform, created_by))
+        result = fake_pairing(f"secret-token-{bundle_kind}")
+        result["record"].update({"bundle_kind": bundle_kind, "bridge_id": bridge_id, "platform": platform})
+        return result
+
+    monkeypatch.setattr(api_tunnel_routes.agent_pairing, "create_pairing", create_pairing)
+
+    status, dedicated = api_tunnel_routes.handle_tunnel_get(
+        "/api/tunnels/office-api/linux-agent-bundle",
+        {"u": "alice", "role": "admin"},
+    )
+    status2, shared = api_tunnel_routes.handle_tunnel_get(
+        "/api/tunnels/bridges/office-linux/windows-agent-bundle",
+        {"u": "bob", "role": "admin"},
+    )
+
+    assert status == 200
+    assert status2 == 200
+    assert dedicated["filename"] == "office-api-linux-agent-bridge.tgz"
+    assert shared["filename"] == "office-linux-windows-agent-bridge.tgz"
+    assert created == [
+        ("dedicated", "office-api", "linux", "alice"),
+        ("shared", "office-linux", "windows", "bob"),
+    ]
+    dedicated_profile = json.loads(read_tar_texts(dedicated["content"])["office-api-linux-bridge/agent-profile.json"])
+    shared_profile = json.loads(read_tar_texts(shared["content"])["office-linux-windows-bridge/agent-profile.json"])
+    assert dedicated_profile["panel_url"] == "https://panel.example.test"
+    assert dedicated_profile["bundle_kind"] == "dedicated"
+    assert shared_profile["panel_url"] == "https://panel.example.test"
+    assert shared_profile["bundle_kind"] == "shared"
+
+
+def test_shared_paired_agent_bundle_route_does_not_build_unused_xray_config(monkeypatch):
+    import api_tunnel_routes
+
+    shared_tunnels = [sample_public_tunnel(id="web", bridge_mode="shared", bridge_id="office-linux")]
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://panel.example.test")
+    monkeypatch.setattr(api_tunnel_routes.tunnel_catalog, "list_tunnels", lambda include_disabled=False: shared_tunnels)
+    monkeypatch.setattr(api_tunnel_routes.tunnel_catalog, "reality_profile_for_tunnel", lambda item: sample_reality_profile())
+    monkeypatch.setattr(api_tunnel_routes.agent_pairing, "create_pairing", lambda *args, **kwargs: fake_pairing("route-token"))
+
+    def fail_build_shared_bridge_config(*args, **kwargs):
+        raise AssertionError("paired agent bundle should bootstrap config later")
+
+    monkeypatch.setattr(api_tunnel_routes.tunnel_config_builder, "build_shared_bridge_config", fail_build_shared_bridge_config)
+
+    status, payload = api_tunnel_routes.handle_tunnel_get(
+        "/api/tunnels/bridges/office-linux/linux-agent-bundle",
+        {"u": "alice", "role": "admin"},
+    )
+
+    assert status == 200
+    assert payload["filename"] == "office-linux-linux-agent-bridge.tgz"
+
+
+def test_dedicated_paired_agent_bundle_route_rejects_shared_tunnel(monkeypatch):
+    import api_tunnel_routes
+
+    tunnel = sample_public_tunnel(bridge_mode="shared", bridge_id="office-linux")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://panel.example.test")
+    monkeypatch.setattr(api_tunnel_routes.tunnel_catalog, "get_tunnel", lambda node_id: tunnel)
+
+    def fail_create_pairing(*args, **kwargs):
+        raise AssertionError("shared tunnels must use the shared paired agent endpoint")
+
+    monkeypatch.setattr(api_tunnel_routes.agent_pairing, "create_pairing", fail_create_pairing)
+
+    status, payload = api_tunnel_routes.handle_tunnel_get(
+        "/api/tunnels/office-api/linux-agent-bundle",
+        {"u": "alice", "role": "admin"},
+    )
+
+    assert status == 400
+    assert payload["ok"] is False
+    assert "shared" in payload["error"]
+
+
+def test_standalone_bridge_client_assets_include_safe_bootstrap_templates():
+    spec = importlib.util.spec_from_file_location("package_bridge_client", ROOT / "scripts" / "package-bridge-client.py")
+    package_bridge_client = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(package_bridge_client)
+
+    files = package_bridge_client.files_for_platform("linux", "3.0.2")
+    profile = json.loads(files["agent-profile.example.json"])
+    raw = "\n".join(files.values())
+
+    assert "bootstrap-agent.py" in files
+    assert "agent-profile.example.json" in files
+    assert profile["schema"] == 1
+    assert profile["panel_url"] == "https://your-panel.example.com"
+    assert profile["token_id"] == "pair_example_token_id"
+    assert profile["pairing_token"] == "replace-with-one-time-pairing-token"
+    assert profile["reserved"] == {"agent_id": "", "capabilities": []}
+    assert "/api/agents/bootstrap" in files["bootstrap-agent.py"]
+    assert "agent-state.json" in files["bootstrap-agent.py"]
+    assert "profile.get(\"reserved\")" in files["bootstrap-agent.py"]
+    assert "secret-token" not in raw
+    assert "api.example.com" not in raw
+    assert "11111111-1111-4111-8111-111111111111" not in raw
+    assert "your-panel.example.com" in raw
+
+
 def test_bridge_dashboard_serves_local_status_json(tmp_path):
     import tunnel_bridge_bundle
 
@@ -635,9 +1034,143 @@ def test_bridge_dashboard_serves_local_status_json(tmp_path):
     assert payload["metadata"]["runtime"]["restart_command"] == "sudo systemctl restart fake-ui-tunnel-office-api.service"
     assert payload["metadata"]["runtime"]["log_command"] == "journalctl -u fake-ui-tunnel-office-api.service -n 80 --no-pager"
     assert payload["logs"][0]["path"].endswith("bridge-dashboard.out.log")
+    assert "config_preview" not in payload
     assert payload["xray_config"]["ok"] is True
     assert payload["services"][0]["id"] == "office-api"
     assert payload["services"][0]["local_reachable"]["ok"] is False
+
+
+def test_bridge_dashboard_rejects_non_local_host_header(tmp_path):
+    import tunnel_bridge_bundle
+
+    metadata = tunnel_bridge_bundle.dashboard_metadata(
+        "dedicated",
+        "office-api",
+        "linux",
+        [
+            {
+                "id": "office-api",
+                "kind": "public_https",
+                "name": "Office API",
+                "public_domain": "api.example.com",
+                "portal_port": 18082,
+                "target_host": "127.0.0.1",
+                "target_port": 9,
+            }
+        ],
+    )
+    (tmp_path / "bridge-dashboard.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (tmp_path / "xray-bridge.json").write_text("{}", encoding="utf-8")
+    script = tmp_path / "bridge-dashboard.py"
+    script.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    proc = subprocess.Popen(
+        [sys.executable, str(script), "--host", "127.0.0.1", "--port", str(port)],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        for _ in range(40):
+            try:
+                with opener.open(f"http://127.0.0.1:{port}/status.json", timeout=1):
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise AssertionError("dashboard did not start")
+        request = urllib.request.Request(f"http://127.0.0.1:{port}/status.json", headers={"Host": "evil.example"})
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            opener.open(request, timeout=1)
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+    assert excinfo.value.code == 403
+
+
+def test_bridge_dashboard_script_uses_fake_ui_shell_and_redacts_sensitive_values():
+    import tunnel_bridge_bundle
+
+    script = tunnel_bridge_bundle.dashboard_script()
+
+    for token in ["--bg", "--surface", "--primary", "--accent", "--radius"]:
+        assert token in script
+    for marker in [
+        "app-shell",
+        "side-nav",
+        "overview-section",
+        "services-section",
+        "setup-section",
+        "logs-section",
+        "api-section",
+        "metric-grid",
+        "service-table",
+        "GET /status.json",
+    ]:
+        assert marker in script
+    assert "def redact_sensitive" in script
+    assert "def xray_config_preview" in script
+    assert "pairing_token" in script
+    assert "privateKey" in script
+    assert "publicKey" in script
+    assert "shortId" in script
+
+
+def test_bridge_dashboard_render_redacts_logs_and_config_snippets(tmp_path):
+    import tunnel_bridge_bundle
+
+    script_path = tmp_path / "bridge_dashboard_runtime.py"
+    script_path.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("bridge_dashboard_runtime", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    secret_uuid = "11111111-1111-4111-8111-111111111111"
+    secret_v7_uuid = "01890f8e-7d1a-7cc2-98c4-0b7a8fb2cabc"
+    secret_nil_uuid = "00000000-0000-0000-0000-000000000000"
+    secret_token = "pairing_token=super-secret-token"
+    secret_public = '"publicKey": "server-public-key"'
+    secret_private = '"privateKey": "server-private-key"'
+    secret_short = '"shortId": "0123456789abcdef"'
+    status = {
+        "metadata": {
+            "bundle_kind": "dedicated",
+            "bridge_id": "office-api",
+            "platform": "linux",
+            "dashboard": {"host": "127.0.0.1", "port": 19090},
+            "runtime": {"name": "fake-ui-tunnel-office-api.service", "restart_command": "sudo systemctl restart fake-ui-tunnel-office-api.service"},
+            "services": [],
+        },
+        "runtime": {"ok": True, "message": "running"},
+        "xray_config": {"ok": True, "path": str(tmp_path / "xray-bridge.json"), "message": "valid json"},
+        "services": [],
+        "logs": [
+            {
+                "path": str(tmp_path / "bridge.err.log"),
+                "exists": True,
+                "tail": f"{secret_uuid}\n{secret_v7_uuid}\n{secret_nil_uuid}\n{secret_token}\n{secret_public}\n{secret_private}\n{secret_short}",
+            }
+        ],
+        "config_preview": f"{secret_uuid}\n{secret_v7_uuid}\n{secret_nil_uuid}\n{secret_public}\n{secret_private}\n{secret_short}",
+    }
+
+    html = module.render_dashboard(status).decode("utf-8")
+
+    assert secret_uuid not in html
+    assert secret_v7_uuid not in html
+    assert secret_nil_uuid not in html
+    assert "super-secret-token" not in html
+    assert "server-public-key" not in html
+    assert "server-private-key" not in html
+    assert "0123456789abcdef" not in html
+    assert "[redacted" in html
 
 
 def test_bridge_dashboard_accepts_manual_client_runtime(tmp_path):
