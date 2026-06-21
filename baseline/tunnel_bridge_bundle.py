@@ -516,7 +516,6 @@ def collect_status(metadata, base_dir):
         "xray_config": xray_config_status(base_dir, metadata),
         "services": services,
         "logs": collect_logs(metadata, base_dir),
-        "config_preview": xray_config_preview(base_dir, metadata),
     }
 
 
@@ -526,7 +525,7 @@ def status_badge(ok):
 
 def redact_sensitive(value):
     text = str(value or "")
-    text = re.sub(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}", "[redacted-uuid]", text)
+    text = re.sub(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", "[redacted-uuid]", text)
     text = re.sub(r'("(?:privateKey|publicKey|shortId|shortIds|pairing_token)"\s*:\s*)("[^"]*"|\[[^\]]*\])', r'\1"[redacted-secret]"', text)
     text = re.sub(r"(?i)(pairing[_-]?token\s*[=:]\s*)[^\s\"']+", r"\1[redacted-secret]", text)
     text = re.sub(r"(?i)((?:private|public)[_-]?key\s*[=:]\s*)[^\s\"']+", r"\1[redacted-secret]", text)
@@ -708,6 +707,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(200, "application/json; charset=utf-8", json.dumps(status, ensure_ascii=False, indent=2).encode("utf-8"))
             return
         if path == "/":
+            status["config_preview"] = xray_config_preview(self.base_dir, self.metadata)
             self.send_bytes(200, "text/html; charset=utf-8", render_dashboard(status))
             return
         self.send_bytes(404, "text/plain; charset=utf-8", b"not found")

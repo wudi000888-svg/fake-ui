@@ -1011,6 +1011,7 @@ def test_bridge_dashboard_serves_local_status_json(tmp_path):
     assert payload["metadata"]["runtime"]["restart_command"] == "sudo systemctl restart fake-ui-tunnel-office-api.service"
     assert payload["metadata"]["runtime"]["log_command"] == "journalctl -u fake-ui-tunnel-office-api.service -n 80 --no-pager"
     assert payload["logs"][0]["path"].endswith("bridge-dashboard.out.log")
+    assert "config_preview" not in payload
     assert payload["xray_config"]["ok"] is True
     assert payload["services"][0]["id"] == "office-api"
     assert payload["services"][0]["local_reachable"]["ok"] is False
@@ -1054,6 +1055,8 @@ def test_bridge_dashboard_render_redacts_logs_and_config_snippets(tmp_path):
     spec.loader.exec_module(module)
 
     secret_uuid = "11111111-1111-4111-8111-111111111111"
+    secret_v7_uuid = "01890f8e-7d1a-7cc2-98c4-0b7a8fb2cabc"
+    secret_nil_uuid = "00000000-0000-0000-0000-000000000000"
     secret_token = "pairing_token=super-secret-token"
     secret_public = '"publicKey": "server-public-key"'
     secret_private = '"privateKey": "server-private-key"'
@@ -1074,15 +1077,17 @@ def test_bridge_dashboard_render_redacts_logs_and_config_snippets(tmp_path):
             {
                 "path": str(tmp_path / "bridge.err.log"),
                 "exists": True,
-                "tail": f"{secret_uuid}\n{secret_token}\n{secret_public}\n{secret_private}\n{secret_short}",
+                "tail": f"{secret_uuid}\n{secret_v7_uuid}\n{secret_nil_uuid}\n{secret_token}\n{secret_public}\n{secret_private}\n{secret_short}",
             }
         ],
-        "config_preview": f"{secret_uuid}\n{secret_public}\n{secret_private}\n{secret_short}",
+        "config_preview": f"{secret_uuid}\n{secret_v7_uuid}\n{secret_nil_uuid}\n{secret_public}\n{secret_private}\n{secret_short}",
     }
 
     html = module.render_dashboard(status).decode("utf-8")
 
     assert secret_uuid not in html
+    assert secret_v7_uuid not in html
+    assert secret_nil_uuid not in html
     assert "super-secret-token" not in html
     assert "server-public-key" not in html
     assert "server-private-key" not in html
