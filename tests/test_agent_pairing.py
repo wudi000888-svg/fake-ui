@@ -193,3 +193,31 @@ def test_public_bootstrap_route_returns_payload_without_admin_session(pairing_mo
 
     assert status == 400
     assert payload["ok"] is False
+
+
+def test_bootstrap_route_rejects_malformed_schema_without_consuming_token(pairing_modules):
+    api = pairing_modules["api"]
+    pairing = pairing_modules["agent_pairing"]
+    tunnel_catalog = pairing_modules["tunnel_catalog"]
+    tunnel_catalog.save_catalog({"version": 1, "tunnels": [tunnel_payload()]})
+    created = pairing.create_pairing("dedicated", "office-api", "macos")
+    payload = {
+        "schema": 1.5,
+        "token_id": created["record"]["token_id"],
+        "pairing_token": created["pairing_token"],
+        "platform": "macos",
+    }
+
+    status, out = api.handle_post("/api/agents/bootstrap", payload, None)
+
+    assert status == 400
+    assert out["ok"] is False
+
+    status, out = api.handle_post(
+        "/api/agents/bootstrap",
+        {**payload, "schema": 1},
+        None,
+    )
+
+    assert status == 200
+    assert out["ok"] is True

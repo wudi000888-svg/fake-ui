@@ -163,7 +163,8 @@ def bridge_config_for_pairing(record):
 
 def validate_bootstrap_request(data):
     payload = data or {}
-    if int(payload.get("schema") or 0) != 1:
+    schema = payload.get("schema")
+    if not (schema == 1 or schema == "1"):
         raise RuntimeError("schema is invalid")
     token_id = str(payload.get("token_id") or "").strip()
     if not token_id:
