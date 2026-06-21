@@ -27,6 +27,9 @@ function tunnelCard(tunnel) {
   const dedicatedButton = tunnel.bridge_mode === "shared"
     ? ""
     : `<button class="secondary" data-action="tunnel-agent-bundle-export" data-tunnel="${esc(tunnel.id)}" data-platform="${esc(platform)}" type="button">生成配对 Agent</button>`;
+  const staticBundleButton = tunnel.bridge_mode === "shared"
+    ? ""
+    : `<button class="secondary" data-action="tunnel-bundle-export" data-tunnel="${esc(tunnel.id)}" data-platform="${esc(platform)}" type="button">下载后端安装包</button>`;
   return `
     <article class="admin-card node-admin-card">
       <div>
@@ -37,7 +40,7 @@ function tunnelCard(tunnel) {
       <div class="admin-actions">
         <button class="secondary" data-action="tunnel-edit" data-tunnel="${esc(tunnel.id)}" type="button">编辑</button>
         ${dedicatedButton}
-        <button class="secondary" data-action="tunnel-bundle-export" data-tunnel="${esc(tunnel.id)}" data-platform="${esc(platform)}" type="button">下载后端安装包</button>
+        ${staticBundleButton}
         ${sharedButton}
         <button class="secondary" data-action="tunnel-export" data-tunnel="${esc(tunnel.id)}" type="button">导出 JSON</button>
         <button class="secondary" data-action="tunnel-action" data-tunnel="${esc(tunnel.id)}" data-tunnel-action="${tunnel.enabled === false ? "enable" : "disable"}" type="button">${tunnel.enabled === false ? "启用" : "停用"}</button>

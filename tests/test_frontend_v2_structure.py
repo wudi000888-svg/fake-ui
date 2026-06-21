@@ -211,9 +211,11 @@ def test_tunnel_cards_separate_dedicated_and_shared_paired_agent_actions():
     tunnels = read_asset("js/pages/admin/tunnels.js")
 
     assert 'const dedicatedButton = tunnel.bridge_mode === "shared"' in tunnels
+    assert 'const staticBundleButton = tunnel.bridge_mode === "shared"' in tunnels
     assert '? ""' in tunnels
     assert 'data-action="tunnel-agent-bundle-export"' in tunnels
     assert "${dedicatedButton}" in tunnels
+    assert "${staticBundleButton}" in tunnels
     assert 'data-action="tunnel-shared-agent-bundle-export"' in tunnels
 
 
