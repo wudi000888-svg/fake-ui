@@ -205,7 +205,7 @@ def test_bootstrap_route_rejects_malformed_schema_without_consuming_token(pairin
     tunnel_catalog.save_catalog({"version": 1, "tunnels": [tunnel_payload()]})
     created = pairing.create_pairing("dedicated", "office-api", "macos")
     payload = {
-        "schema": 1.5,
+        "schema": 1.0,
         "token_id": created["record"]["token_id"],
         "pairing_token": created["pairing_token"],
         "platform": "macos",

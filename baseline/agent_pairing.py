@@ -210,7 +210,7 @@ def validate_bootstrap_request(data):
         raise RuntimeError("request body must be an object")
     payload = data
     schema = payload.get("schema")
-    if not (schema == 1 or schema == "1") or isinstance(schema, bool):
+    if not ((type(schema) is int and schema == 1) or schema == "1"):
         raise RuntimeError("schema is invalid")
     token_id = str(payload.get("token_id") or "").strip()
     if not token_id:
