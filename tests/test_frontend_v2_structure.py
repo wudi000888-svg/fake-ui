@@ -207,6 +207,16 @@ def test_frontend_exposes_tunnel_management_screen():
     assert 'import { api, download, downloadText, post } from "../api.js";' in user_node_actions
 
 
+def test_tunnel_cards_separate_dedicated_and_shared_paired_agent_actions():
+    tunnels = read_asset("js/pages/admin/tunnels.js")
+
+    assert 'const dedicatedButton = tunnel.bridge_mode === "shared"' in tunnels
+    assert '? ""' in tunnels
+    assert 'data-action="tunnel-agent-bundle-export"' in tunnels
+    assert "${dedicatedButton}" in tunnels
+    assert 'data-action="tunnel-shared-agent-bundle-export"' in tunnels
+
+
 def test_frontend_v2_removes_legacy_single_file_assets():
     assert not (ASSETS / "app.js").exists()
     assert not (ASSETS / "style.css").exists()
