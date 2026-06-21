@@ -638,3 +638,56 @@ def test_bridge_dashboard_serves_local_status_json(tmp_path):
     assert payload["xray_config"]["ok"] is True
     assert payload["services"][0]["id"] == "office-api"
     assert payload["services"][0]["local_reachable"]["ok"] is False
+
+
+def test_bridge_dashboard_accepts_manual_client_runtime(tmp_path):
+    import tunnel_bridge_bundle
+
+    metadata = {
+        "bundle_kind": "client-template",
+        "bridge_id": "client-template",
+        "platform": "macos",
+        "dashboard": {"host": "127.0.0.1", "port": 19090},
+        "runtime": {
+            "kind": "manual",
+            "name": "fake-ui bridge client",
+            "restart_command": "bash stop-bridge.sh && bash start-bridge.sh",
+            "log_command": "open bridge-client.err.log",
+        },
+        "logs": ["bridge-dashboard.out.log"],
+        "xray_config": {"path": "xray-bridge.json"},
+        "services": [],
+    }
+    (tmp_path / "bridge-dashboard.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (tmp_path / "xray-bridge.json").write_text("{}", encoding="utf-8")
+    script = tmp_path / "bridge-dashboard.py"
+    script.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    proc = subprocess.Popen(
+        [sys.executable, str(script), "--host", "127.0.0.1", "--port", str(port)],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        for _ in range(40):
+            try:
+                with opener.open(f"http://127.0.0.1:{port}/status.json", timeout=1) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise AssertionError("dashboard did not start")
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+    assert payload["runtime"]["ok"] is True
+    assert payload["runtime"]["message"] == "manual client mode"

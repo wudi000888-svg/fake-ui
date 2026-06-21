@@ -399,6 +399,8 @@ def runtime_status(metadata):
     name = runtime.get("name")
     if not name:
         return {"ok": False, "message": "runtime name is missing"}
+    if kind == "manual":
+        return {"ok": True, "message": "manual client mode"}
     if kind == "launchd":
         return command_probe(["launchctl", "print", f"gui/{os.getuid()}/{name}"])
     if kind == "systemd":
