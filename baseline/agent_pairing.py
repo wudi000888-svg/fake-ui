@@ -148,25 +148,46 @@ def update_pairing(token_id, updates):
     return update_store(update)
 
 
-def consume_pairing(token_id, pairing_token):
-    def consume(data):
-        pairings = data.setdefault("pairings", {})
-        record = pairings.get(str(token_id or "").strip())
-        if not record:
-            raise RuntimeError("pairing token is invalid")
-        if record.get("used_at"):
-            raise RuntimeError("pairing token already used")
-        expires_at = parse_time(record.get("expires_at"))
-        if expires_at and expires_at <= now_utc():
-            raise RuntimeError("pairing token expired")
-        expected = str(record.get("token_hash") or "")
-        actual = token_hash(pairing_token)
-        if not expected or not hmac.compare_digest(expected, actual):
-            raise RuntimeError("pairing token is invalid")
+def validate_pairing_record(data, token_id, pairing_token):
+    pairings = data.setdefault("pairings", {})
+    record = pairings.get(str(token_id or "").strip())
+    if not record:
+        raise RuntimeError("pairing token is invalid")
+    if record.get("used_at"):
+        raise RuntimeError("pairing token already used")
+    expires_at = parse_time(record.get("expires_at"))
+    if expires_at and expires_at <= now_utc():
+        raise RuntimeError("pairing token expired")
+    expected = str(record.get("token_hash") or "")
+    actual = token_hash(pairing_token)
+    if not expected or not hmac.compare_digest(expected, actual):
+        raise RuntimeError("pairing token is invalid")
+    return record
+
+
+def pairing_snapshot(token_id, pairing_token):
+    data = load_store()
+    return dict(validate_pairing_record(data, token_id, pairing_token))
+
+
+def mark_pairing_used(token_id, pairing_token, expected=None):
+    expected = dict(expected or {})
+
+    def mark(data):
+        record = validate_pairing_record(data, token_id, pairing_token)
+        for field in ("token_id", "bridge_id", "bundle_kind", "platform", "agent_id"):
+            if expected and record.get(field) != expected.get(field):
+                raise RuntimeError("pairing token changed")
+        if expected and list(record.get("capabilities") or []) != list(expected.get("capabilities") or []):
+            raise RuntimeError("pairing token changed")
         record["used_at"] = isoformat(now_utc())
         return dict(record)
 
-    return update_store(consume)
+    return update_store(mark)
+
+
+def consume_pairing(token_id, pairing_token):
+    return mark_pairing_used(token_id, pairing_token)
 
 
 def dedicated_bridge_config(bridge_id, platform):
@@ -223,8 +244,9 @@ def validate_bootstrap_request(data):
 
 def bootstrap_agent(data):
     token_id, pairing_token = validate_bootstrap_request(data)
-    record = consume_pairing(token_id, pairing_token)
-    xray_config, dashboard_metadata = bridge_config_for_pairing(record)
+    snapshot = pairing_snapshot(token_id, pairing_token)
+    xray_config, dashboard_metadata = bridge_config_for_pairing(snapshot)
+    record = mark_pairing_used(token_id, pairing_token, expected=snapshot)
     runtime = dashboard_metadata.get("runtime") or {}
     agent = {
         "agent_id": record.get("agent_id"),

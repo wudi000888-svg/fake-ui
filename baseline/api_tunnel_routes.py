@@ -170,6 +170,8 @@ def handle_tunnel_get(path, session):
         if platform not in tunnel_catalog.BRIDGE_PLATFORMS:
             return api_error("bridge platform is invalid", 400)
         tunnel = tunnel_catalog.get_tunnel(node_id)
+        if tunnel.get("bridge_mode") == tunnel_catalog.BRIDGE_MODE_SHARED:
+            return api_error("shared bridge tunnels must use the shared paired agent endpoint", 400)
         pairing = agent_pairing.create_pairing("dedicated", tunnel.get("id"), platform, created_by=session.get("u", "admin"))
         content = tunnel_bridge_bundle.build_paired_bundle(tunnel, pairing, panel_url(), platform)
         return ok(

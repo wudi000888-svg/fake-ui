@@ -6,6 +6,7 @@ import sys
 import tarfile
 import threading
 import time
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
@@ -932,6 +933,28 @@ def test_shared_paired_agent_bundle_route_does_not_build_unused_xray_config(monk
     assert payload["filename"] == "office-linux-linux-agent-bridge.tgz"
 
 
+def test_dedicated_paired_agent_bundle_route_rejects_shared_tunnel(monkeypatch):
+    import api_tunnel_routes
+
+    tunnel = sample_public_tunnel(bridge_mode="shared", bridge_id="office-linux")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://panel.example.test")
+    monkeypatch.setattr(api_tunnel_routes.tunnel_catalog, "get_tunnel", lambda node_id: tunnel)
+
+    def fail_create_pairing(*args, **kwargs):
+        raise AssertionError("shared tunnels must use the shared paired agent endpoint")
+
+    monkeypatch.setattr(api_tunnel_routes.agent_pairing, "create_pairing", fail_create_pairing)
+
+    status, payload = api_tunnel_routes.handle_tunnel_get(
+        "/api/tunnels/office-api/linux-agent-bundle",
+        {"u": "alice", "role": "admin"},
+    )
+
+    assert status == 400
+    assert payload["ok"] is False
+    assert "shared" in payload["error"]
+
+
 def test_standalone_bridge_client_assets_include_safe_bootstrap_templates():
     spec = importlib.util.spec_from_file_location("package_bridge_client", ROOT / "scripts" / "package-bridge-client.py")
     package_bridge_client = importlib.util.module_from_spec(spec)
@@ -1015,6 +1038,61 @@ def test_bridge_dashboard_serves_local_status_json(tmp_path):
     assert payload["xray_config"]["ok"] is True
     assert payload["services"][0]["id"] == "office-api"
     assert payload["services"][0]["local_reachable"]["ok"] is False
+
+
+def test_bridge_dashboard_rejects_non_local_host_header(tmp_path):
+    import tunnel_bridge_bundle
+
+    metadata = tunnel_bridge_bundle.dashboard_metadata(
+        "dedicated",
+        "office-api",
+        "linux",
+        [
+            {
+                "id": "office-api",
+                "kind": "public_https",
+                "name": "Office API",
+                "public_domain": "api.example.com",
+                "portal_port": 18082,
+                "target_host": "127.0.0.1",
+                "target_port": 9,
+            }
+        ],
+    )
+    (tmp_path / "bridge-dashboard.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (tmp_path / "xray-bridge.json").write_text("{}", encoding="utf-8")
+    script = tmp_path / "bridge-dashboard.py"
+    script.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    proc = subprocess.Popen(
+        [sys.executable, str(script), "--host", "127.0.0.1", "--port", str(port)],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        for _ in range(40):
+            try:
+                with opener.open(f"http://127.0.0.1:{port}/status.json", timeout=1):
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise AssertionError("dashboard did not start")
+        request = urllib.request.Request(f"http://127.0.0.1:{port}/status.json", headers={"Host": "evil.example"})
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            opener.open(request, timeout=1)
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+    assert excinfo.value.code == 403
 
 
 def test_bridge_dashboard_script_uses_fake_ui_shell_and_redacts_sensitive_values():

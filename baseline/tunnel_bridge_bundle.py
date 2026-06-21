@@ -413,6 +413,25 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 19090
 
 
+def allowed_host_header(value, port):
+    host = str(value or "").strip()
+    if not host:
+        return True
+    if host.startswith("["):
+        end = host.find("]")
+        name = host[:end + 1].lower() if end >= 0 else host.lower()
+        suffix = host[end + 1:] if end >= 0 else ""
+    else:
+        name, sep, suffix = host.partition(":")
+        name = name.lower()
+        suffix = sep + suffix if sep else ""
+    if name not in {"127.0.0.1", "localhost", "[::1]"}:
+        return False
+    if not suffix:
+        return True
+    return suffix == f":{int(port)}"
+
+
 def load_metadata(base_dir):
     path = base_dir / "bridge-dashboard.json"
     with path.open("r", encoding="utf-8") as fh:
@@ -689,6 +708,7 @@ def render_dashboard(status):
 class Handler(BaseHTTPRequestHandler):
     base_dir = Path(__file__).resolve().parent
     metadata = {}
+    dashboard_port = DEFAULT_PORT
 
     def log_message(self, fmt, *args):
         return
@@ -701,6 +721,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self):
+        if not allowed_host_header(self.headers.get("Host", ""), self.dashboard_port):
+            self.send_bytes(403, "text/plain; charset=utf-8", b"forbidden")
+            return
         path = urlparse(self.path).path
         status = collect_status(self.metadata, self.base_dir)
         if path == "/status.json":
@@ -721,6 +744,7 @@ def main():
     if args.host != DEFAULT_HOST:
         raise SystemExit("dashboard is local-only; host must be 127.0.0.1")
     Handler.metadata = load_metadata(Handler.base_dir)
+    Handler.dashboard_port = args.port
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"fake-ui bridge dashboard: http://{args.host}:{args.port}/")
     server.serve_forever()

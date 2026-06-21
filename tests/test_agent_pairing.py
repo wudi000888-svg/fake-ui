@@ -119,6 +119,27 @@ def test_bootstrap_agent_consumes_valid_token_once(pairing_modules):
         )
 
 
+def test_bootstrap_agent_does_not_consume_token_when_config_generation_fails(pairing_modules):
+    pairing = pairing_modules["agent_pairing"]
+    tunnel_catalog = pairing_modules["tunnel_catalog"]
+    created = pairing.create_pairing("dedicated", "office-api", "linux")
+    request = {
+        "schema": 1,
+        "token_id": created["record"]["token_id"],
+        "pairing_token": created["pairing_token"],
+        "platform": "linux",
+    }
+
+    with pytest.raises(RuntimeError, match="tunnel not found"):
+        pairing.bootstrap_agent(request)
+
+    tunnel_catalog.save_catalog({"version": 1, "tunnels": [tunnel_payload()]})
+    response = pairing.bootstrap_agent(request)
+
+    assert response["agent"]["bridge_id"] == "office-api"
+    assert response["xray_config"]["outbounds"]
+
+
 def test_bootstrap_agent_rejects_expired_token(pairing_modules):
     pairing = pairing_modules["agent_pairing"]
     created = pairing.create_pairing("dedicated", "office-api", "macos")
