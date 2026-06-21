@@ -5,6 +5,7 @@ import security
 PUBLIC_POSTS = {
     "/api/login",
     "/api/register",
+    "/api/agents/bootstrap",
     "/api/password-reset/send-code",
     "/api/password-reset/confirm",
 }

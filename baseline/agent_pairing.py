@@ -3,10 +3,12 @@ import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 
+import db
 import store_facade
 import tunnel_bridge_bundle
 import tunnel_catalog
 import tunnel_config_builder
+from repositories.sqlite_base import dump_json, load_json
 from repositories.sqlite_settings import SQLiteSettingsRepository
 
 
@@ -43,9 +45,48 @@ def token_hash(token):
 def load_store():
     store_facade.ensure_sqlite()
     data = SQLiteSettingsRepository().get(SETTINGS_KEY, {"version": 1, "pairings": {}})
+    return normalize_store(data)
+
+
+def normalize_store(data):
+    data = dict(data or {})
     data.setdefault("version", 1)
     data.setdefault("pairings", {})
     return data
+
+
+def load_store_from_conn(conn):
+    row = conn.execute("select value_json from settings where key = ?", (SETTINGS_KEY,)).fetchone()
+    return normalize_store(load_json(row["value_json"]) if row else {"version": 1, "pairings": {}})
+
+
+def save_store_to_conn(conn, data):
+    payload = {"version": 1, "pairings": dict((data or {}).get("pairings", {}))}
+    conn.execute(
+        """
+        insert or replace into settings (key, value_json, updated_at)
+        values (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        """,
+        (SETTINGS_KEY, dump_json(payload)),
+    )
+    return payload
+
+
+def update_store(mutator):
+    store_facade.ensure_sqlite()
+    conn = db.connect()
+    try:
+        conn.execute("begin immediate")
+        data = load_store_from_conn(conn)
+        result = mutator(data)
+        save_store_to_conn(conn, data)
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def save_store(data):
@@ -88,41 +129,44 @@ def create_pairing(bundle_kind, bridge_id, platform, created_by="admin", ttl_min
         "agent_id": "agent_" + secrets.token_urlsafe(12),
         "capabilities": list(CAPABILITIES),
     }
-    data = load_store()
-    data.setdefault("pairings", {})[token_id] = record
-    save_store(data)
-    return {"pairing_token": raw_token, "record": public_record(record)}
+    def write(data):
+        data.setdefault("pairings", {})[token_id] = record
+        return {"pairing_token": raw_token, "record": public_record(record)}
+
+    return update_store(write)
 
 
 def update_pairing(token_id, updates):
-    data = load_store()
-    pairings = data.setdefault("pairings", {})
-    record = pairings.get(str(token_id or ""))
-    if not record:
-        raise RuntimeError("pairing token is invalid")
-    record.update(dict(updates or {}))
-    save_store(data)
-    return public_record(record)
+    def update(data):
+        pairings = data.setdefault("pairings", {})
+        record = pairings.get(str(token_id or ""))
+        if not record:
+            raise RuntimeError("pairing token is invalid")
+        record.update(dict(updates or {}))
+        return public_record(record)
+
+    return update_store(update)
 
 
 def consume_pairing(token_id, pairing_token):
-    data = load_store()
-    pairings = data.setdefault("pairings", {})
-    record = pairings.get(str(token_id or "").strip())
-    if not record:
-        raise RuntimeError("pairing token is invalid")
-    if record.get("used_at"):
-        raise RuntimeError("pairing token already used")
-    expires_at = parse_time(record.get("expires_at"))
-    if expires_at and expires_at <= now_utc():
-        raise RuntimeError("pairing token expired")
-    expected = str(record.get("token_hash") or "")
-    actual = token_hash(pairing_token)
-    if not expected or not hmac.compare_digest(expected, actual):
-        raise RuntimeError("pairing token is invalid")
-    record["used_at"] = isoformat(now_utc())
-    save_store(data)
-    return dict(record)
+    def consume(data):
+        pairings = data.setdefault("pairings", {})
+        record = pairings.get(str(token_id or "").strip())
+        if not record:
+            raise RuntimeError("pairing token is invalid")
+        if record.get("used_at"):
+            raise RuntimeError("pairing token already used")
+        expires_at = parse_time(record.get("expires_at"))
+        if expires_at and expires_at <= now_utc():
+            raise RuntimeError("pairing token expired")
+        expected = str(record.get("token_hash") or "")
+        actual = token_hash(pairing_token)
+        if not expected or not hmac.compare_digest(expected, actual):
+            raise RuntimeError("pairing token is invalid")
+        record["used_at"] = isoformat(now_utc())
+        return dict(record)
+
+    return update_store(consume)
 
 
 def dedicated_bridge_config(bridge_id, platform):
@@ -162,9 +206,11 @@ def bridge_config_for_pairing(record):
 
 
 def validate_bootstrap_request(data):
-    payload = data or {}
+    if not isinstance(data, dict):
+        raise RuntimeError("request body must be an object")
+    payload = data
     schema = payload.get("schema")
-    if not (schema == 1 or schema == "1"):
+    if not (schema == 1 or schema == "1") or isinstance(schema, bool):
         raise RuntimeError("schema is invalid")
     token_id = str(payload.get("token_id") or "").strip()
     if not token_id:

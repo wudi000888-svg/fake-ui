@@ -1,6 +1,8 @@
 import importlib
 import sys
+import threading
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -23,6 +25,7 @@ MODULES = [
     "api_agent_routes",
     "api_post_routes",
     "api",
+    "http_api_routes",
 ]
 
 
@@ -221,3 +224,101 @@ def test_bootstrap_route_rejects_malformed_schema_without_consuming_token(pairin
 
     assert status == 200
     assert out["ok"] is True
+
+
+def test_bootstrap_route_rejects_non_object_body_and_boolean_schema(pairing_modules):
+    api = pairing_modules["api"]
+    pairing = pairing_modules["agent_pairing"]
+    tunnel_catalog = pairing_modules["tunnel_catalog"]
+    tunnel_catalog.save_catalog({"version": 1, "tunnels": [tunnel_payload()]})
+    created = pairing.create_pairing("dedicated", "office-api", "macos")
+
+    status, out = api.handle_post("/api/agents/bootstrap", ["not", "an", "object"], None)
+
+    assert status == 400
+    assert out["ok"] is False
+
+    status, out = api.handle_post(
+        "/api/agents/bootstrap",
+        {
+            "schema": True,
+            "token_id": created["record"]["token_id"],
+            "pairing_token": created["pairing_token"],
+        },
+        None,
+    )
+
+    assert status == 400
+    assert out["ok"] is False
+
+    status, out = api.handle_post(
+        "/api/agents/bootstrap",
+        {
+            "schema": 1,
+            "token_id": created["record"]["token_id"],
+            "pairing_token": created["pairing_token"],
+        },
+        None,
+    )
+
+    assert status == 200
+    assert out["ok"] is True
+
+
+def test_http_bootstrap_ignores_stale_session_csrf(pairing_modules):
+    http_api_routes = pairing_modules["http_api_routes"]
+    pairing = pairing_modules["agent_pairing"]
+    tunnel_catalog = pairing_modules["tunnel_catalog"]
+    tunnel_catalog.save_catalog({"version": 1, "tunnels": [tunnel_payload()]})
+    created = pairing.create_pairing("dedicated", "office-api", "macos")
+    captured = {}
+
+    class FakeHandler:
+        path = "/api/agents/bootstrap"
+        headers = {"Content-Type": "application/json"}
+
+        def current_session(self):
+            return {"u": "olduser", "r": "user", "role": "user", "csrf": "old-csrf"}
+
+        def read_json_or_form(self):
+            return {
+                "schema": 1,
+                "token_id": created["record"]["token_id"],
+                "pairing_token": created["pairing_token"],
+                "platform": "macos",
+            }
+
+        def respond_json(self, payload, status):
+            captured["payload"] = payload
+            captured["status"] = status
+
+    http_api_routes.handle_post(FakeHandler())
+
+    assert captured["status"] == 200
+    assert captured["payload"]["ok"] is True
+
+
+def test_pairing_token_is_consumed_atomically(pairing_modules, monkeypatch):
+    pairing = pairing_modules["agent_pairing"]
+    created = pairing.create_pairing("dedicated", "office-api", "macos")
+    original_save_store = pairing.save_store
+    barrier = threading.Barrier(2)
+
+    def slow_save_store(data):
+        barrier.wait(timeout=2)
+        return original_save_store(data)
+
+    monkeypatch.setattr(pairing, "save_store", slow_save_store)
+
+    def consume_once():
+        try:
+            pairing.consume_pairing(created["record"]["token_id"], created["pairing_token"])
+            return "ok"
+        except RuntimeError as exc:
+            return str(exc)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = [future.result(timeout=5) for future in [pool.submit(consume_once), pool.submit(consume_once)]]
+
+    assert results.count("ok") == 1
+    assert any("used" in result for result in results)
