@@ -1167,6 +1167,372 @@ def test_bridge_dashboard_imports_local_json_files(tmp_path):
     assert excinfo.value.code == 400
 
 
+def test_bridge_dashboard_importing_xray_config_updates_service_metadata(tmp_path):
+    import tunnel_bridge_bundle
+    import tunnel_config_builder
+
+    old_metadata = tunnel_bridge_bundle.dashboard_metadata(
+        "dedicated",
+        "old-api",
+        "linux",
+        [
+            {
+                "id": "old-api",
+                "kind": "public_https",
+                "name": "old.example.com",
+                "public_domain": "old.example.com",
+                "portal_port": 18082,
+                "target_host": "127.0.0.1",
+                "target_port": 18080,
+            }
+        ],
+    )
+    node = {
+        "id": "new-guangyuego-top",
+        "name": "new.guangyuego.top",
+        "kind": "public_https",
+        "public_domain": "new.guangyuego.top",
+        "client_id": "11111111-1111-4111-8111-111111111111",
+        "target_host": "127.0.0.1",
+        "target_port": 8888,
+        "portal_port": 18088,
+        "flow": "xtls-rprx-vision",
+    }
+    cfg = tunnel_config_builder.build_bridge_config(
+        node,
+        {
+            "address": "new.guangyuego.top",
+            "port": 443,
+            "server_name": "www.cloudflare.com",
+            "public_key": "public-key",
+            "short_id": "abcd1234",
+            "fingerprint": "chrome",
+        },
+    )
+    (tmp_path / "bridge-dashboard.json").write_text(json.dumps(old_metadata), encoding="utf-8")
+    (tmp_path / "xray-bridge.json").write_text("{}", encoding="utf-8")
+    script = tmp_path / "bridge-dashboard.py"
+    script.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    proc = subprocess.Popen(
+        [sys.executable, str(script), "--host", "127.0.0.1", "--port", str(port)],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        for _ in range(40):
+            try:
+                with opener.open(f"http://127.0.0.1:{port}/status.json", timeout=1):
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise AssertionError("dashboard did not start")
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/import",
+            data=json.dumps({"filename": "xray-bridge.json", "content": cfg}).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Host": f"127.0.0.1:{port}"},
+            method="POST",
+        )
+        with opener.open(request, timeout=1) as response:
+            import_payload = json.loads(response.read().decode("utf-8"))
+
+        with opener.open(f"http://127.0.0.1:{port}/status.json", timeout=1) as response:
+            status = json.loads(response.read().decode("utf-8"))
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+    services = status["metadata"]["services"]
+    assert import_payload["ok"] is True
+    assert import_payload["filename"] == "xray-bridge.json"
+    assert import_payload["metadata_updated"] is True
+    assert [(item["public_domain"], item["local"]) for item in services] == [("new.guangyuego.top", "127.0.0.1:8888")]
+    assert json.loads((tmp_path / "bridge-dashboard.json").read_text(encoding="utf-8"))["services"][0]["public_domain"] == "new.guangyuego.top"
+
+
+def test_bridge_dashboard_importing_ip_xray_config_preserves_public_domain(tmp_path):
+    import tunnel_bridge_bundle
+    import tunnel_config_builder
+
+    metadata = tunnel_bridge_bundle.dashboard_metadata(
+        "dedicated",
+        "new-guangyuego-top",
+        "linux",
+        [
+            {
+                "id": "new-guangyuego-top",
+                "kind": "public_https",
+                "name": "new.guangyuego.top",
+                "public_domain": "new.guangyuego.top",
+                "portal_port": 18085,
+                "target_host": "127.0.0.1",
+                "target_port": 8888,
+            }
+        ],
+    )
+    node = {
+        "id": "new-guangyuego-top",
+        "name": "new.guangyuego.top",
+        "kind": "public_https",
+        "public_domain": "new.guangyuego.top",
+        "client_id": "11111111-1111-4111-8111-111111111111",
+        "target_host": "127.0.0.1",
+        "target_port": 8888,
+        "portal_port": 18085,
+        "flow": "xtls-rprx-vision",
+    }
+    cfg = tunnel_config_builder.build_bridge_config(
+        node,
+        {
+            "address": "203.0.113.10",
+            "port": 443,
+            "server_name": "www.cloudflare.com",
+            "public_key": "public-key",
+            "short_id": "abcd1234",
+            "fingerprint": "chrome",
+        },
+    )
+    (tmp_path / "bridge-dashboard.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (tmp_path / "xray-bridge.json").write_text("{}", encoding="utf-8")
+    script = tmp_path / "bridge-dashboard.py"
+    script.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    proc = subprocess.Popen(
+        [sys.executable, str(script), "--host", "127.0.0.1", "--port", str(port)],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        for _ in range(40):
+            try:
+                with opener.open(f"http://127.0.0.1:{port}/status.json", timeout=1):
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise AssertionError("dashboard did not start")
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/import",
+            data=json.dumps(
+                {
+                    "filename": "xray-bridge.json",
+                    "source_filename": "new-guangyuego-top-xray-bridge.json",
+                    "content": cfg,
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Host": f"127.0.0.1:{port}"},
+            method="POST",
+        )
+        with opener.open(request, timeout=1) as response:
+            import_payload = json.loads(response.read().decode("utf-8"))
+
+        with opener.open(f"http://127.0.0.1:{port}/status.json", timeout=1) as response:
+            status = json.loads(response.read().decode("utf-8"))
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+    assert import_payload["ok"] is True
+    assert status["metadata"]["services"][0]["id"] == "new-guangyuego-top"
+    assert status["metadata"]["services"][0]["public_domain"] == "new.guangyuego.top"
+    assert status["metadata"]["services"][0]["public_url"] == "https://new.guangyuego.top/"
+
+
+def test_bridge_dashboard_import_preserves_local_network_overrides(tmp_path):
+    import tunnel_bridge_bundle
+    import tunnel_config_builder
+
+    metadata = tunnel_bridge_bundle.dashboard_metadata(
+        "dedicated",
+        "new-guangyuego-top",
+        "linux",
+        [
+            {
+                "id": "new-guangyuego-top",
+                "kind": "public_https",
+                "name": "new.guangyuego.top",
+                "public_domain": "new.guangyuego.top",
+                "portal_port": 18085,
+                "target_host": "127.0.0.1",
+                "target_port": 8888,
+            }
+        ],
+    )
+    node = {
+        "id": "new-guangyuego-top",
+        "name": "new.guangyuego.top",
+        "kind": "public_https",
+        "public_domain": "new.guangyuego.top",
+        "client_id": "11111111-1111-4111-8111-111111111111",
+        "target_host": "127.0.0.1",
+        "target_port": 8888,
+        "portal_port": 18085,
+        "flow": "xtls-rprx-vision",
+    }
+    imported_cfg = tunnel_config_builder.build_bridge_config(
+        node,
+        {
+            "address": "new.guangyuego.top",
+            "port": 443,
+            "server_name": "www.cloudflare.com",
+            "public_key": "public-key",
+            "short_id": "abcd1234",
+            "fingerprint": "chrome",
+        },
+    )
+    existing_cfg = json.loads(json.dumps(imported_cfg))
+    reverse = next(item for item in existing_cfg["outbounds"] if item["tag"] == "tunnel-reverse-out")
+    reverse["settings"]["address"] = "203.0.113.10"
+    reverse["streamSettings"]["sockopt"] = {"interface": "en0"}
+
+    (tmp_path / "bridge-dashboard.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (tmp_path / "xray-bridge.json").write_text(json.dumps(existing_cfg), encoding="utf-8")
+    script = tmp_path / "bridge-dashboard.py"
+    script.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    proc = subprocess.Popen(
+        [sys.executable, str(script), "--host", "127.0.0.1", "--port", str(port)],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        for _ in range(40):
+            try:
+                with opener.open(f"http://127.0.0.1:{port}/status.json", timeout=1):
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise AssertionError("dashboard did not start")
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/import",
+            data=json.dumps(
+                {
+                    "filename": "xray-bridge.json",
+                    "source_filename": "new-guangyuego-top-xray-bridge.json",
+                    "content": imported_cfg,
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Host": f"127.0.0.1:{port}"},
+            method="POST",
+        )
+        with opener.open(request, timeout=1) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+    saved_cfg = json.loads((tmp_path / "xray-bridge.json").read_text(encoding="utf-8"))
+    saved_reverse = next(item for item in saved_cfg["outbounds"] if item["tag"] == "tunnel-reverse-out")
+    assert payload["ok"] is True
+    assert saved_reverse["settings"]["address"] == "203.0.113.10"
+    assert saved_reverse["streamSettings"]["sockopt"] == {"interface": "en0"}
+
+
+def test_bridge_dashboard_rejects_xray_config_imported_as_metadata(tmp_path):
+    import tunnel_bridge_bundle
+    import tunnel_config_builder
+
+    metadata = tunnel_bridge_bundle.dashboard_metadata(
+        "dedicated",
+        "old-api",
+        "linux",
+        [
+            {
+                "id": "old-api",
+                "kind": "public_https",
+                "name": "old.example.com",
+                "public_domain": "old.example.com",
+                "portal_port": 18082,
+                "target_host": "127.0.0.1",
+                "target_port": 18080,
+            }
+        ],
+    )
+    cfg = tunnel_config_builder.build_bridge_config(
+        {
+            "id": "new-guangyuego-top",
+            "public_domain": "new.guangyuego.top",
+            "client_id": "11111111-1111-4111-8111-111111111111",
+            "target_host": "127.0.0.1",
+            "target_port": 8888,
+        },
+        {
+            "address": "new.guangyuego.top",
+            "port": 443,
+            "server_name": "www.cloudflare.com",
+            "public_key": "public-key",
+            "short_id": "abcd1234",
+        },
+    )
+    (tmp_path / "bridge-dashboard.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (tmp_path / "xray-bridge.json").write_text("{}", encoding="utf-8")
+    script = tmp_path / "bridge-dashboard.py"
+    script.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    proc = subprocess.Popen(
+        [sys.executable, str(script), "--host", "127.0.0.1", "--port", str(port)],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        for _ in range(40):
+            try:
+                with opener.open(f"http://127.0.0.1:{port}/status.json", timeout=1):
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise AssertionError("dashboard did not start")
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/import",
+            data=json.dumps({"filename": "bridge-dashboard.json", "content": cfg}).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Host": f"127.0.0.1:{port}"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            opener.open(request, timeout=1)
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+    assert excinfo.value.code == 400
+    assert json.loads((tmp_path / "bridge-dashboard.json").read_text(encoding="utf-8"))["services"][0]["public_domain"] == "old.example.com"
+
+
 def test_bridge_dashboard_restarts_runtime_from_local_api(tmp_path):
     import tunnel_bridge_bundle
 

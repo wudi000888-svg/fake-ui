@@ -504,12 +504,249 @@ def write_json_atomic(path, data):
     tmp.replace(path)
 
 
+def load_json_file(path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def parse_host_port(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return "", 0
+    host, sep, port = raw.rpartition(":")
+    if not sep:
+        return raw, 0
+    try:
+        return host or "127.0.0.1", int(port)
+    except Exception:
+        return host or "127.0.0.1", 0
+
+
+def infer_public_domain(address):
+    value = str(address or "").strip().lower().rstrip(".")
+    if not value or value in {"127.0.0.1", "localhost"}:
+        return ""
+    if re.fullmatch(r"\d+(?:\.\d+){3}", value):
+        return ""
+    return value if "." in value else ""
+
+
+def infer_public_domain_from_filename(filename):
+    raw = Path(str(filename or "")).name.lower()
+    if not raw:
+        return ""
+    raw = re.sub(r"\s+\(\d+\)(?=\.json$|$)", "", raw)
+    raw = re.sub(r"\.json$", "", raw)
+    raw = re.sub(r"[-_\s]+(?:xray[-_\s]+bridge|bridge[-_\s]+dashboard|agent[-_\s]+profile)$", "", raw)
+    dotted = infer_public_domain(raw)
+    if dotted:
+        return dotted
+    parts = [part for part in re.split(r"[-_\s]+", raw) if part]
+    tlds = {
+        "com",
+        "net",
+        "org",
+        "io",
+        "app",
+        "dev",
+        "top",
+        "xyz",
+        "cn",
+        "hk",
+        "sg",
+        "us",
+        "uk",
+        "jp",
+        "de",
+        "fr",
+    }
+    indexes = [index for index, part in enumerate(parts) if part in tlds]
+    if not indexes:
+        return ""
+    return infer_public_domain(".".join(parts[: indexes[-1] + 1]))
+
+
+def service_id_from_tag(tag, fallback):
+    raw = str(tag or "")
+    prefixes = ["tunnel-local-service-", "tunnel-local-service", "tunnel-reverse-out-", "tunnel-reverse-out"]
+    for prefix in prefixes:
+        if raw == prefix.rstrip("-"):
+            return fallback
+        if raw.startswith(prefix):
+            clean = raw[len(prefix):].strip("-")
+            return clean or fallback
+    return fallback
+
+
+def apply_public_domain(service, public_domain):
+    domain = infer_public_domain(public_domain)
+    if not domain:
+        return service
+    item = dict(service)
+    generic_id = not item.get("id") or re.fullmatch(r"service-\d+", str(item.get("id") or ""))
+    if generic_id:
+        item["id"] = domain.replace(".", "-")
+    if not item.get("name") or re.fullmatch(r"service-\d+", str(item.get("name") or "")):
+        item["name"] = domain
+    item["kind"] = "public_https"
+    item["public_domain"] = domain
+    item["public_url"] = f"https://{domain}/"
+    return item
+
+
+def infer_dashboard_services_from_xray_config(config, source_filename=""):
+    outbounds = list((config or {}).get("outbounds") or [])
+    reverse_by_inbound = {}
+    reverse_by_suffix = {}
+    for outbound in outbounds:
+        settings = outbound.get("settings") or {}
+        reverse = settings.get("reverse") or {}
+        reverse_in = str(reverse.get("tag") or "").strip()
+        tag = str(outbound.get("tag") or "")
+        if reverse_in:
+            reverse_by_inbound[reverse_in] = outbound
+        if tag.startswith("tunnel-reverse-out-"):
+            reverse_by_suffix[tag[len("tunnel-reverse-out-"):]] = outbound
+        elif tag == "tunnel-reverse-out":
+            reverse_by_suffix[""] = outbound
+    route_by_outbound = {}
+    for rule in ((config or {}).get("routing") or {}).get("rules") or []:
+        outbound_tag = str(rule.get("outboundTag") or "")
+        inbound_tags = rule.get("inboundTag") or []
+        if isinstance(inbound_tags, str):
+            inbound_tags = [inbound_tags]
+        for inbound_tag in inbound_tags:
+            route_by_outbound[outbound_tag] = str(inbound_tag or "")
+    services = []
+    for index, outbound in enumerate(outbounds):
+        tag = str(outbound.get("tag") or "")
+        if not tag.startswith("tunnel-local-service"):
+            continue
+        settings = outbound.get("settings") or {}
+        host, port = parse_host_port(settings.get("redirect"))
+        suffix = tag[len("tunnel-local-service"):].strip("-")
+        reverse_in = route_by_outbound.get(tag)
+        reverse = reverse_by_inbound.get(reverse_in) or reverse_by_suffix.get(suffix) or reverse_by_suffix.get("")
+        reverse_settings = (reverse or {}).get("settings") or {}
+        public_domain = infer_public_domain(reverse_settings.get("address"))
+        service_id = service_id_from_tag(tag, public_domain.replace(".", "-") if public_domain else f"service-{index + 1}")
+        services.append(
+            {
+                "id": service_id,
+                "name": public_domain or service_id,
+                "kind": "public_https" if public_domain else "private_tcp",
+                "public_domain": public_domain,
+                "public_url": f"https://{public_domain}/" if public_domain else "",
+                "local": f"{host}:{port}" if port else host,
+                "local_url": f"http://{host}:{port}/" if port else "",
+                "target_host": host or "127.0.0.1",
+                "target_port": int(port or 0),
+                "portal_port": 0,
+            }
+        )
+    filename_domain = infer_public_domain_from_filename(source_filename)
+    if filename_domain and len(services) == 1 and not services[0].get("public_domain"):
+        services[0] = apply_public_domain(services[0], filename_domain)
+    return services
+
+
+def validate_dashboard_metadata(content):
+    if not isinstance(content, dict) or not isinstance(content.get("dashboard"), dict):
+        raise RuntimeError("bridge-dashboard.json 格式不正确")
+    if not isinstance(content.get("runtime"), dict):
+        raise RuntimeError("bridge-dashboard.json 缺少 runtime")
+    services = content.get("services")
+    if services is not None and not isinstance(services, list):
+        raise RuntimeError("bridge-dashboard.json services 格式不正确")
+
+
+def validate_agent_profile(content):
+    if not isinstance(content, dict) or content.get("schema") != 1:
+        raise RuntimeError("agent-profile.json 格式不正确")
+    if not content.get("panel_url") or not content.get("token_id"):
+        raise RuntimeError("agent-profile.json 缺少配对信息")
+
+
+def reverse_outbounds(config):
+    return [
+        item
+        for item in (config or {}).get("outbounds") or []
+        if item.get("protocol") == "vless" and str(item.get("tag") or "").startswith("tunnel-reverse")
+    ]
+
+
+def preserve_local_network_overrides(imported_config, existing_config):
+    if not isinstance(imported_config, dict) or not isinstance(existing_config, dict):
+        return imported_config
+    existing_by_tag = {str(item.get("tag") or ""): item for item in reverse_outbounds(existing_config)}
+    if not existing_by_tag:
+        return imported_config
+    merged = json.loads(json.dumps(imported_config))
+    for outbound in reverse_outbounds(merged):
+        existing = existing_by_tag.get(str(outbound.get("tag") or ""))
+        if not existing:
+            continue
+        existing_settings = existing.get("settings") or {}
+        imported_settings = outbound.setdefault("settings", {})
+        existing_address = str(existing_settings.get("address") or "").strip()
+        imported_address = str(imported_settings.get("address") or "").strip()
+        if existing_address and existing_address != imported_address:
+            imported_settings["address"] = existing_address
+        existing_sockopt = (existing.get("streamSettings") or {}).get("sockopt")
+        if existing_sockopt:
+            outbound.setdefault("streamSettings", {})["sockopt"] = existing_sockopt
+    return merged
+
+
+def merge_metadata_services(metadata, services):
+    merged = dict(metadata or {})
+    if not isinstance(merged.get("dashboard"), dict):
+        merged["dashboard"] = {"host": DEFAULT_HOST, "port": DEFAULT_PORT}
+    existing_services = [item for item in merged.get("services") or [] if isinstance(item, dict)]
+    by_id = {str(item.get("id") or ""): item for item in existing_services if item.get("id")}
+    by_target = {
+        (str(item.get("target_host") or "127.0.0.1"), int(item.get("target_port") or 0)): item
+        for item in existing_services
+        if item.get("target_port")
+    }
+    enriched = []
+    for service in services or []:
+        item = dict(service)
+        existing = by_id.get(str(item.get("id") or "")) or by_target.get(
+            (str(item.get("target_host") or "127.0.0.1"), int(item.get("target_port") or 0))
+        )
+        if existing:
+            if not item.get("public_domain") and existing.get("public_domain"):
+                item = apply_public_domain(item, existing.get("public_domain"))
+            if not item.get("portal_port") and existing.get("portal_port"):
+                item["portal_port"] = int(existing.get("portal_port") or 0)
+            if (not item.get("name") or re.fullmatch(r"service-\d+", str(item.get("name") or ""))) and existing.get("name"):
+                item["name"] = existing.get("name")
+            if not item.get("kind") and existing.get("kind"):
+                item["kind"] = existing.get("kind")
+        enriched.append(item)
+    merged["services"] = enriched
+    if merged["services"]:
+        first = merged["services"][0]
+        merged["bridge_id"] = merged.get("bridge_id") or first.get("id") or "manual-bridge"
+    return merged
+
+
 def import_json_file(base_dir, filename, content):
     clean = str(filename or "").strip()
     if clean not in IMPORT_FILENAMES:
         raise RuntimeError("只支持导入 xray-bridge.json、bridge-dashboard.json 或 agent-profile.json")
     if not isinstance(content, dict):
         raise RuntimeError("导入内容必须是 JSON 对象")
+    if clean == "bridge-dashboard.json":
+        validate_dashboard_metadata(content)
+    if clean == "agent-profile.json":
+        validate_agent_profile(content)
+    if clean == "xray-bridge.json":
+        existing = load_json_file(base_dir / clean)
+        content = preserve_local_network_overrides(content, existing)
     write_json_atomic(base_dir / clean, content)
     return clean
 
@@ -850,7 +1087,7 @@ def render_dashboard(status):
         const response = await fetch('/api/import', {{
           method: 'POST',
           headers: {{ 'Content-Type': 'application/json' }},
-          body: JSON.stringify({{ filename, content }})
+          body: JSON.stringify({{ filename, source_filename: input.files[0].name, content }})
         }});
         const payload = await response.json();
         if (!response.ok || !payload.ok) throw new Error(payload.error || '导入失败');
@@ -905,7 +1142,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(403, "text/plain; charset=utf-8", b"forbidden")
             return
         path = urlparse(self.path).path
-        status = collect_status(self.metadata, self.base_dir)
+        status = collect_status(type(self).metadata, self.base_dir)
         if path == "/status.json":
             self.send_bytes(200, "application/json; charset=utf-8", json.dumps(status, ensure_ascii=False, indent=2).encode("utf-8"))
             return
@@ -922,7 +1159,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/restart":
             try:
-                result = restart_runtime(self.metadata, self.base_dir)
+                result = restart_runtime(type(self).metadata, self.base_dir)
                 self.send_json(200, result)
             except Exception as exc:
                 self.send_json(400, {"ok": False, "error": str(exc)})
@@ -936,9 +1173,22 @@ class Handler(BaseHTTPRequestHandler):
                 raise RuntimeError("请求体为空或过大")
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             filename = import_json_file(self.base_dir, payload.get("filename"), payload.get("content"))
+            metadata_updated = False
+            if filename == "xray-bridge.json":
+                services = infer_dashboard_services_from_xray_config(
+                    payload.get("content") or {},
+                    payload.get("source_filename") or payload.get("original_filename") or "",
+                )
+                if services:
+                    type(self).metadata = merge_metadata_services(type(self).metadata, services)
+                    write_json_atomic(self.base_dir / "bridge-dashboard.json", type(self).metadata)
+                    metadata_updated = True
             if filename == "bridge-dashboard.json":
-                self.metadata = load_metadata(self.base_dir)
-            self.send_json(200, {"ok": True, "filename": filename})
+                type(self).metadata = load_metadata(self.base_dir)
+            result = {"ok": True, "filename": filename}
+            if metadata_updated:
+                result["metadata_updated"] = True
+            self.send_json(200, result)
         except Exception as exc:
             self.send_json(400, {"ok": False, "error": str(exc)})
 
