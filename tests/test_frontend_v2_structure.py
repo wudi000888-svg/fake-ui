@@ -179,8 +179,10 @@ def test_frontend_exposes_tunnel_management_screen():
     assert 'data-form="tunnel-save"' in tunnels
     assert 'data-action="tunnel-export"' in tunnels
     assert 'data-action="tunnel-bundle-export"' in tunnels
+    assert 'data-action="tunnel-agent-bundle-export"' in tunnels
     assert 'data-platform="${esc(platform)}"' in tunnels
     assert 'data-action="tunnel-shared-bundle-export"' in tunnels
+    assert 'data-action="tunnel-shared-agent-bundle-export"' in tunnels
     assert 'data-action="tunnel-portal-export"' in tunnels
     assert 'data-action="tunnel-portal-apply"' in tunnels
     assert 'name="kind"' in tunnels
@@ -196,7 +198,9 @@ def test_frontend_exposes_tunnel_management_screen():
     assert 'post("/api/tunnels/save"' in handlers
     assert "/api/tunnels/${encodeURIComponent(id)}/bridge-config" in handlers
     assert "/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-bundle" in handlers
+    assert "/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-agent-bundle" in handlers
     assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-bundle" in handlers
+    assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-agent-bundle" in handlers
     assert 'api("/api/tunnels/portal-config")' in handlers
     assert 'post("/api/tunnels/apply"' in handlers
     assert "downloadText" in handlers

@@ -123,11 +123,25 @@ export async function handleUserNodeAction(button, app, { runAction }) {
     await download(`/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-bundle`);
     return true;
   }
+  if (actionName === "tunnel-agent-bundle-export") {
+    const id = button.dataset.tunnel || "";
+    const platform = button.dataset.platform || "macos";
+    if (!id) return true;
+    await download(`/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-agent-bundle`);
+    return true;
+  }
   if (actionName === "tunnel-shared-bundle-export") {
     const bridgeId = button.dataset.bridge || "";
     const platform = button.dataset.platform || "macos";
     if (!bridgeId) return true;
     await download(`/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-bundle`);
+    return true;
+  }
+  if (actionName === "tunnel-shared-agent-bundle-export") {
+    const bridgeId = button.dataset.bridge || "";
+    const platform = button.dataset.platform || "macos";
+    if (!bridgeId) return true;
+    await download(`/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-agent-bundle`);
     return true;
   }
   if (actionName === "tunnel-portal-export") {

@@ -21,7 +21,8 @@ function tunnelCard(tunnel) {
   const bridgeMode = tunnel.bridge_mode === "shared" ? `共享 Agent ${esc(tunnel.bridge_id || "")}` : "独立 Agent";
   const platform = tunnel.bridge_platform || "macos";
   const sharedButton = tunnel.bridge_mode === "shared"
-    ? `<button class="secondary" data-action="tunnel-shared-bundle-export" data-bridge="${esc(tunnel.bridge_id || "")}" data-platform="${esc(platform)}" type="button">下载共享 Agent</button>`
+    ? `<button class="secondary" data-action="tunnel-shared-agent-bundle-export" data-bridge="${esc(tunnel.bridge_id || "")}" data-platform="${esc(platform)}" type="button">生成共享配对 Agent</button>
+        <button class="secondary" data-action="tunnel-shared-bundle-export" data-bridge="${esc(tunnel.bridge_id || "")}" data-platform="${esc(platform)}" type="button">下载共享 Agent</button>`
     : "";
   return `
     <article class="admin-card node-admin-card">
@@ -32,6 +33,7 @@ function tunnelCard(tunnel) {
       <p>${esc(tunnel.public_domain || tunnel.server_address || "")} · ${esc(tunnel.server_address || "")}:${esc(tunnel.server_port || "443")} · SNI ${esc(tunnel.reality_sni || "www.cloudflare.com")} · ${bridgeMode}</p>
       <div class="admin-actions">
         <button class="secondary" data-action="tunnel-edit" data-tunnel="${esc(tunnel.id)}" type="button">编辑</button>
+        <button class="secondary" data-action="tunnel-agent-bundle-export" data-tunnel="${esc(tunnel.id)}" data-platform="${esc(platform)}" type="button">生成配对 Agent</button>
         <button class="secondary" data-action="tunnel-bundle-export" data-tunnel="${esc(tunnel.id)}" data-platform="${esc(platform)}" type="button">下载后端安装包</button>
         ${sharedButton}
         <button class="secondary" data-action="tunnel-export" data-tunnel="${esc(tunnel.id)}" type="button">导出 JSON</button>
