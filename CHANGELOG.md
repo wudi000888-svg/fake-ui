@@ -1,5 +1,15 @@
 # 更新日志
 
+## v3.0.1
+
+| 类型 | 内容 |
+| --- | --- |
+| 配对 Agent | 新增 dedicated/shared 内网穿透配对 Agent 包，面板生成短期一次性 token，本地后端首次运行时主动 bootstrap 拉取配置 |
+| 本地客户端 | `bootstrap-agent.py` 会写入 `xray-bridge.json`、`bridge-dashboard.json` 和 `agent-state.json`，成功后清空 `agent-profile.json` 中的 token |
+| 本地控制台 | Bridge dashboard 升级为 fake-ui 风格本地应用，保留 `127.0.0.1:19090` local-only 边界，并展示 runtime、服务、setup、日志和状态 API |
+| 安全 | 配对 token 只 hash 存储；dashboard 渲染日志和配置预览时脱敏 UUID、Reality key、short ID 和 pairing token |
+| 兼容 | 原有静态安装包、JSON 导出和共享 Agent 流程保留；面板按钮区分配对 Agent 和手动静态包 |
+
 ## v3.0.0
 
 | 类型 | 内容 |
