@@ -25,6 +25,7 @@ def test_package_code_excludes_runtime_data_and_macos_pax_headers(tmp_path):
 
     assert "baseline/app_version.py" in names
     assert "docs/releases/v3.0.0.md" in names
+    assert "docs/releases/v3.0.1.md" in names
     assert not any(name == ".env" or name.startswith("data/") for name in names)
     assert not any(name.startswith("generated/") or name.startswith(".git/") for name in names)
     assert not any(name.startswith("artifacts/") or name.startswith(".demo-runtime/") for name in names)

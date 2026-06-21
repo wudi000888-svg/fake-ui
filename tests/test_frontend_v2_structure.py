@@ -456,6 +456,7 @@ def test_frontend_v2_layout_prevents_dashboard_overflow():
 
     assert "version-chip" in layout_js
     assert "state.shell?.version" in layout_js
+    assert 'state.shell?.version || "3.0.1"' in layout_js
     assert "side-nav-scroll" in layout_js
     assert "side-nav-footer" in layout_js
     assert "nav-stack secondary" not in layout_js

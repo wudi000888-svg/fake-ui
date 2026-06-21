@@ -1,6 +1,10 @@
 import json
+import socket
+import subprocess
 import sys
 import tarfile
+import time
+import urllib.request
 from io import BytesIO
 from pathlib import Path
 
@@ -364,6 +368,69 @@ def test_dedicated_bridge_bundle_contains_linux_and_windows_installers():
     assert "run -test -c" in install
 
 
+def test_dedicated_bridge_bundle_includes_local_dashboard_assets():
+    import tunnel_bridge_bundle
+    import tunnel_config_builder
+
+    tunnel = {
+        "id": "office-api",
+        "kind": "public_https",
+        "name": "Office API",
+        "public_domain": "api.example.com",
+        "portal_port": 18082,
+        "target_host": "127.0.0.1",
+        "target_port": 5000,
+        "client_id": "11111111-1111-4111-8111-111111111111",
+        "flow": "xtls-rprx-vision",
+    }
+    profile = {
+        "server_name": "www.cloudflare.com",
+        "address": "vless.example.com",
+        "port": 443,
+        "public_key": "server-public-key",
+        "short_id": "0123456789abcdef",
+    }
+    bridge_cfg = tunnel_config_builder.build_bridge_config(tunnel, profile)
+
+    bundles = {
+        "macos": ("office-api", tunnel_bridge_bundle.build_bundle(tunnel, bridge_cfg, "macos"), "open-dashboard.sh"),
+        "linux": ("office-api-linux-bridge", tunnel_bridge_bundle.build_bundle(tunnel, bridge_cfg, "linux"), "open-dashboard.sh"),
+        "windows": ("office-api-windows-bridge", tunnel_bridge_bundle.build_bundle(tunnel, bridge_cfg, "windows"), "open-dashboard.ps1"),
+    }
+
+    for platform, (root, content, open_script) in bundles.items():
+        with tarfile.open(fileobj=BytesIO(content), mode="r:gz") as tar:
+            names = set(tar.getnames())
+            assert f"{root}/bridge-dashboard.py" in names
+            assert f"{root}/bridge-dashboard.json" in names
+            assert f"{root}/{open_script}" in names
+            metadata = json.loads(tar.extractfile(f"{root}/bridge-dashboard.json").read().decode("utf-8"))
+            dashboard = tar.extractfile(f"{root}/bridge-dashboard.py").read().decode("utf-8")
+            readme = tar.extractfile(f"{root}/README.md").read().decode("utf-8")
+
+        assert metadata["bundle_kind"] == "dedicated"
+        assert metadata["platform"] == platform
+        assert metadata["dashboard"]["host"] == "127.0.0.1"
+        assert metadata["dashboard"]["port"] == 19090
+        assert metadata["runtime"]["restart_command"]
+        assert metadata["logs"]
+        assert metadata["services"][0]["id"] == "office-api"
+        assert metadata["services"][0]["public_url"] == "https://api.example.com/"
+        assert metadata["services"][0]["local"] == "127.0.0.1:5000"
+        assert "DEFAULT_HOST = \"127.0.0.1\"" in dashboard
+        assert "http://127.0.0.1:19090/" in readme
+        assert "0.0.0.0" not in dashboard
+        platform_title = {"macos": "macOS", "linux": "Linux", "windows": "Windows"}[platform]
+        assert f"fake-ui {platform_title} Bridge" in readme
+        if platform == "windows":
+            assert "install-windows.ps1" in readme
+            assert "open-dashboard.ps1" in readme
+            assert "bash open-dashboard.sh" not in readme
+        else:
+            assert f"install-{platform}.sh" in readme
+            assert "open-dashboard.sh" in readme
+
+
 def test_shared_bridge_agent_bundle_contains_linux_and_windows_installers():
     import tunnel_bridge_bundle
     import tunnel_config_builder
@@ -433,7 +500,141 @@ def test_shared_bridge_agent_bundle_contains_linux_and_windows_installers():
         root = "office-linux-windows-bridge"
         assert f"{root}/install-windows.ps1" in names
         install = tar.extractfile(f"{root}/install-windows.ps1").read().decode("utf-8")
+        readme = tar.extractfile(f"{root}/README.md").read().decode("utf-8")
 
     assert "Register-ScheduledTask" in install
     assert "FakeUIBridge-office-linux" in install
     assert "run -test -c" in install
+    assert "PowerShell" in readme
+    assert "open-dashboard.ps1" in readme
+    assert "bash open-dashboard.sh" not in readme
+
+
+def test_shared_bridge_agent_bundle_dashboard_lists_all_services():
+    import tunnel_bridge_bundle
+    import tunnel_config_builder
+
+    tunnels = [
+        {
+            "id": "web",
+            "kind": "public_https",
+            "name": "Web",
+            "public_domain": "web.example.com",
+            "portal_port": 18082,
+            "target_host": "127.0.0.1",
+            "target_port": 3000,
+            "client_id": "11111111-1111-4111-8111-111111111111",
+            "flow": "xtls-rprx-vision",
+            "bridge_mode": "shared",
+            "bridge_id": "office-linux",
+            "bridge_platform": "linux",
+        },
+        {
+            "id": "api",
+            "kind": "public_https",
+            "name": "API",
+            "public_domain": "api.example.com",
+            "portal_port": 18083,
+            "target_host": "127.0.0.1",
+            "target_port": 5000,
+            "client_id": "33333333-3333-4333-8333-333333333333",
+            "flow": "xtls-rprx-vision",
+            "bridge_mode": "shared",
+            "bridge_id": "office-linux",
+            "bridge_platform": "linux",
+        },
+    ]
+    profile = {
+        "server_name": "www.cloudflare.com",
+        "address": "vless.example.com",
+        "port": 443,
+        "public_key": "server-public-key",
+        "short_id": "0123456789abcdef",
+    }
+    bridge_cfg = tunnel_config_builder.build_shared_bridge_config(tunnels, profile)
+
+    content = tunnel_bridge_bundle.build_agent_bundle("office-linux", tunnels, bridge_cfg, "macos")
+
+    with tarfile.open(fileobj=BytesIO(content), mode="r:gz") as tar:
+        root = "office-linux-macos-bridge"
+        names = set(tar.getnames())
+        assert f"{root}/bridge-dashboard.py" in names
+        assert f"{root}/bridge-dashboard.json" in names
+        assert f"{root}/open-dashboard.sh" in names
+        metadata = json.loads(tar.extractfile(f"{root}/bridge-dashboard.json").read().decode("utf-8"))
+        dashboard = tar.extractfile(f"{root}/bridge-dashboard.py").read().decode("utf-8")
+
+    assert metadata["bundle_kind"] == "shared"
+    assert metadata["bridge_id"] == "office-linux"
+    assert metadata["dashboard"] == {"host": "127.0.0.1", "port": 19090}
+    assert metadata["runtime"]["restart_command"] == 'launchctl kickstart -k "gui/$(id -u)/com.fakeui.bridge.office-linux"'
+    assert metadata["logs"] == [
+        "~/.fake-ui/bridges/office-linux/bridge.out.log",
+        "~/.fake-ui/bridges/office-linux/bridge.err.log",
+        "bridge-dashboard.out.log",
+        "bridge-dashboard.err.log",
+    ]
+    assert [service["id"] for service in metadata["services"]] == ["web", "api"]
+    assert metadata["services"][0]["public_url"] == "https://web.example.com/"
+    assert metadata["services"][1]["local"] == "127.0.0.1:5000"
+    assert "def render_dashboard" in dashboard
+    assert "GET /status.json" in dashboard
+
+
+def test_bridge_dashboard_serves_local_status_json(tmp_path):
+    import tunnel_bridge_bundle
+
+    metadata = tunnel_bridge_bundle.dashboard_metadata(
+        "dedicated",
+        "office-api",
+        "linux",
+        [
+            {
+                "id": "office-api",
+                "kind": "public_https",
+                "name": "Office API",
+                "public_domain": "api.example.com",
+                "portal_port": 18082,
+                "target_host": "127.0.0.1",
+                "target_port": 9,
+            }
+        ],
+    )
+    (tmp_path / "bridge-dashboard.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (tmp_path / "xray-bridge.json").write_text("{}", encoding="utf-8")
+    script = tmp_path / "bridge-dashboard.py"
+    script.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    proc = subprocess.Popen(
+        [sys.executable, str(script), "--host", "127.0.0.1", "--port", str(port)],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        for _ in range(40):
+            try:
+                with opener.open(f"http://127.0.0.1:{port}/status.json", timeout=1) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise AssertionError("dashboard did not start")
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+    assert payload["metadata"]["dashboard"] == {"host": "127.0.0.1", "port": 19090}
+    assert payload["metadata"]["runtime"]["restart_command"] == "sudo systemctl restart fake-ui-tunnel-office-api.service"
+    assert payload["metadata"]["runtime"]["log_command"] == "journalctl -u fake-ui-tunnel-office-api.service -n 80 --no-pager"
+    assert payload["logs"][0]["path"].endswith("bridge-dashboard.out.log")
+    assert payload["xray_config"]["ok"] is True
+    assert payload["services"][0]["id"] == "office-api"
+    assert payload["services"][0]["local_reachable"]["ok"] is False
