@@ -1,5 +1,5 @@
-import { esc } from "../../components/layout.js";
-import { empty, gb, stat, statusPill } from "../../components/ui.js";
+import { esc } from "../../components/layout.js?v=3.0.1";
+import { empty, gb, stat, statusPill } from "../../components/ui.js?v=3.0.1";
 
 
 function linkForNode(node, links, index) {

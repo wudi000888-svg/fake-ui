@@ -1,5 +1,5 @@
-import { state } from "../state.js";
-import { navigate } from "../router.js";
+import { state } from "../state.js?v=3.0.1";
+import { navigate } from "../router.js?v=3.0.1";
 
 const SIDEBAR_COLLAPSED_KEY = "fake-ui-side-nav-collapsed";
 

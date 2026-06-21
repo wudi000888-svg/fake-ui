@@ -1,5 +1,5 @@
-import { state } from "../state.js";
-import { esc } from "./layout.js";
+import { state } from "../state.js?v=3.0.1";
+import { esc } from "./layout.js?v=3.0.1";
 
 
 function notice() {

@@ -17,7 +17,7 @@ import security
 def cache_control_for_path(path):
     clean = urllib.parse.urlparse(path).path
     if clean.startswith("/assets/") or clean in {"/favicon.ico", "/favicon.svg"}:
-        return "public, max-age=3600"
+        return "no-cache"
     return "no-store"
 
 

@@ -31,6 +31,7 @@ def test_package_code_excludes_runtime_data_and_macos_pax_headers(tmp_path):
     assert not any(name == ".env" or name.startswith("data/") for name in names)
     assert not any(name.startswith("generated/") or name.startswith(".git/") for name in names)
     assert not any(name.startswith("artifacts/") or name.startswith(".demo-runtime/") for name in names)
+    assert not any(Path(name).name.startswith("._") for name in names)
     assert not any(key.startswith("LIBARCHIVE.xattr") or key.startswith("SCHILY.") for key in pax_headers)
 
 
@@ -49,6 +50,7 @@ def test_package_code_works_from_source_tree_without_git_metadata(tmp_path):
     (source / "__pycache__").mkdir()
     (source / "scripts" / "package-code.py").write_text((ROOT / "scripts" / "package-code.py").read_text(encoding="utf-8"), encoding="utf-8")
     (source / "baseline" / "app_version.py").write_text("APP_VERSION = 'test'\n", encoding="utf-8")
+    (source / "baseline" / "._app_version.py").write_bytes(b"\x00\x05appledouble")
     (source / "data" / "fake-ui.db").write_text("secret", encoding="utf-8")
     (source / "generated" / "cert.pem").write_text("secret", encoding="utf-8")
     (source / "artifacts" / "screenshot.png").write_bytes(b"png")
@@ -70,6 +72,7 @@ def test_package_code_works_from_source_tree_without_git_metadata(tmp_path):
 
     assert "baseline/app_version.py" in names
     assert "scripts/package-code.py" in names
+    assert "baseline/._app_version.py" not in names
     assert ".env" not in names
     assert "data/fake-ui.db" not in names
     assert "generated/cert.pem" not in names

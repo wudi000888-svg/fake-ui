@@ -1,4 +1,4 @@
-import { cssEscape, fillForm, openForm, closeBySelector } from "../dom.js";
+import { cssEscape, fillForm, openForm, closeBySelector } from "../dom.js?v=3.0.1";
 
 
 const FORM_SELECTOR = ".user-create-form, .user-edit-form, .node-edit-form, .plan-edit-form, .hy2-edit-form, .tunnel-edit-form";

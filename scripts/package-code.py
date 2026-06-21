@@ -41,6 +41,8 @@ def should_skip(name):
         return True
     if any(part in SKIP_NAMES for part in parts):
         return True
+    if any(part.startswith("._") for part in parts):
+        return True
     return Path(name).suffix in SKIP_SUFFIXES
 
 

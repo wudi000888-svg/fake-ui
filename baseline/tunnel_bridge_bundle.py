@@ -411,6 +411,7 @@ from urllib.parse import urlparse
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 19090
+IMPORT_FILENAMES = {"xray-bridge.json", "bridge-dashboard.json", "agent-profile.json"}
 
 
 def allowed_host_header(value, port):
@@ -496,6 +497,23 @@ def xray_config_preview(base_dir, metadata, limit=2600):
     return json.dumps(data, indent=2, ensure_ascii=False)[:limit]
 
 
+def write_json_atomic(path, data):
+    raw = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(raw, encoding="utf-8")
+    tmp.replace(path)
+
+
+def import_json_file(base_dir, filename, content):
+    clean = str(filename or "").strip()
+    if clean not in IMPORT_FILENAMES:
+        raise RuntimeError("只支持导入 xray-bridge.json、bridge-dashboard.json 或 agent-profile.json")
+    if not isinstance(content, dict):
+        raise RuntimeError("导入内容必须是 JSON 对象")
+    write_json_atomic(base_dir / clean, content)
+    return clean
+
+
 def expand_log_path(base_dir, path):
     raw = str(path or "")
     if raw.startswith("~"):
@@ -560,6 +578,30 @@ def badge_html(ok, text):
     return f"<span class='status-badge {status_badge(bool(ok))}'>{esc(text or 'unknown')}</span>"
 
 
+def runtime_label(runtime):
+    if runtime.get("ok"):
+        return "运行中"
+    message = str(runtime.get("message") or "")
+    if "missing" in message.lower():
+        return "未配置"
+    return "需检查"
+
+
+def config_label(xray_config):
+    if xray_config.get("ok"):
+        return "配置有效"
+    message = str(xray_config.get("message") or "")
+    if message == "missing":
+        return "缺少配置"
+    return "配置需检查"
+
+
+def probe_label(probe):
+    if probe.get("ok"):
+        return "可达"
+    return "不可达"
+
+
 def render_dashboard(status):
     metadata = status.get("metadata") or {}
     runtime = status.get("runtime") or {}
@@ -578,15 +620,16 @@ def render_dashboard(status):
             f"<td>{esc(service.get('kind') or '')}</td>"
             f"<td><code>{esc(local_url)}</code></td>"
             f"<td><code>{esc(public_url)}</code></td>"
-            f"<td>{badge_html(bool(probe.get('ok')), probe.get('message') or '')}</td>"
+            f"<td>{badge_html(bool(probe.get('ok')), probe_label(probe))}</td>"
             "</tr>"
         )
-    runtime_name = (metadata.get("runtime") or {}).get("name") or ""
-    restart_command = (metadata.get("runtime") or {}).get("restart_command") or ""
-    log_command = (metadata.get("runtime") or {}).get("log_command") or ""
+    runtime_meta = metadata.get("runtime") or {}
+    runtime_name = runtime_meta.get("name") or ""
+    restart_command = runtime_meta.get("restart_command") or ""
+    log_command = runtime_meta.get("log_command") or ""
     log_blocks = []
     for item in logs:
-        state = "found" if item.get("exists") else "missing"
+        state = "存在" if item.get("exists") else "未找到"
         tail = item.get("tail") or ""
         log_blocks.append(
             f"<details><summary>{esc(item.get('path') or '')} · {esc(state)}</summary>"
@@ -597,13 +640,15 @@ def render_dashboard(status):
     log_count = len([item for item in logs if item.get("exists")])
     config_preview = status.get("config_preview") or ""
     if not config_preview:
-        config_preview = xray_config.get("message") or "No config preview available"
+        config_preview = xray_config.get("message") or "暂无配置预览"
+    runtime_text = runtime_label(runtime)
+    config_text = config_label(xray_config)
     html_text = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>fake-ui Bridge Dashboard</title>
+  <title>fake-ui Bridge 本地控制台</title>
   <style>
     :root {{ --bg: #f4f8fb; --surface: #ffffff; --surface-soft: #f8fbfd; --ink: #101828; --muted: #667085; --line: #dde6ee; --primary: #2563eb; --primary-soft: #eaf1ff; --accent: #14b8a6; --accent-soft: #e7faf7; --success: #12805c; --warning: #b7791f; --danger: #c2413b; --radius: 8px; --shadow: 0 10px 30px rgba(16, 24, 40, 0.08); }}
     * {{ box-sizing: border-box; }}
@@ -612,7 +657,7 @@ def render_dashboard(status):
     .side-nav {{ position: sticky; top: 0; height: 100vh; display: grid; grid-template-rows: auto 1fr auto; gap: 16px; padding: 16px 14px; background: rgba(255,255,255,.96); border-right: 1px solid var(--line); }}
     .brand {{ padding: 8px 10px 14px; border-bottom: 1px solid var(--line); }}
     .brand strong {{ display: block; font-size: 20px; }}
-    .brand span, .nav-link, .section-kicker, td span {{ color: var(--muted); font-size: 12px; }}
+    .brand span, .nav-link, .section-kicker, td span, .hint {{ color: var(--muted); font-size: 12px; }}
     .nav-stack {{ display: grid; align-content: start; gap: 6px; }}
     .nav-link {{ display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 10px; border-radius: var(--radius); text-decoration: none; color: var(--ink); font-weight: 700; }}
     .nav-link.active, .nav-link:hover {{ background: var(--primary-soft); color: var(--primary); }}
@@ -631,75 +676,153 @@ def render_dashboard(status):
     .status-badge {{ display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 999px; font-weight: 800; font-size: 12px; }}
     .status-badge.ok {{ color: var(--success); background: #dcfce7; }}
     .status-badge.warn {{ color: var(--warning); background: #fff3cf; }}
+    .button-row {{ display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }}
+    .btn {{ appearance: none; border: 1px solid var(--primary); background: var(--primary); color: white; border-radius: var(--radius); min-height: 36px; padding: 0 12px; font-weight: 800; cursor: pointer; }}
+    .btn.secondary {{ background: var(--surface); color: var(--primary); }}
+    input[type=file] {{ max-width: 100%; }}
+    .notice {{ margin-top: 10px; min-height: 22px; font-weight: 700; color: var(--muted); }}
     table {{ width: 100%; border-collapse: collapse; }}
     th, td {{ text-align: left; padding: 11px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }}
-    th {{ color: var(--muted); font-size: 12px; text-transform: uppercase; }}
+    th {{ color: var(--muted); font-size: 12px; }}
     td strong, td span {{ display: block; }}
     code {{ background: var(--surface-soft); border: 1px solid var(--line); border-radius: 6px; padding: 2px 5px; }}
     pre {{ max-height: 260px; overflow: auto; background: #101828; color: #edf5ff; border-radius: var(--radius); padding: 12px; white-space: pre-wrap; font-size: 12px; }}
     summary {{ cursor: pointer; padding: 7px 0; font-weight: 700; }}
-    .setup-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
-    .setup-item {{ border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--surface-soft); }}
+    .setup-grid, .guide-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
+    .setup-item, .guide-item {{ border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--surface-soft); }}
     .mono-line {{ word-break: break-all; }}
-    @media (max-width: 860px) {{ .app-shell {{ grid-template-columns: 1fr; }} .side-nav {{ position: static; height: auto; grid-template-rows: auto; }} .nav-stack {{ display: flex; overflow-x: auto; }} .metric-grid, .setup-grid {{ grid-template-columns: 1fr; }} .topbar {{ align-items: flex-start; flex-direction: column; }} }}
+    ol, ul {{ margin-bottom: 0; padding-left: 20px; }}
+    @media (max-width: 860px) {{ .app-shell {{ grid-template-columns: 1fr; }} .side-nav {{ position: static; height: auto; grid-template-rows: auto; }} .nav-stack {{ display: flex; overflow-x: auto; }} .metric-grid, .setup-grid, .guide-grid {{ grid-template-columns: 1fr; }} .topbar {{ align-items: flex-start; flex-direction: column; }} }}
   </style>
 </head>
 <body>
   <div class="app-shell">
     <aside class="side-nav">
-      <div class="brand"><strong>fake-ui</strong><span>Bridge Agent</span></div>
+      <div class="brand"><strong>fake-ui</strong><span>Bridge 本地控制台</span></div>
       <nav class="nav-stack">
-        <a class="nav-link active" href="#overview-section">Overview</a>
-        <a class="nav-link" href="#services-section">Services</a>
-        <a class="nav-link" href="#setup-section">Setup</a>
-        <a class="nav-link" href="#logs-section">Logs</a>
+        <a class="nav-link active" href="#overview-section">概览</a>
+        <a class="nav-link" href="#services-section">服务状态</a>
+        <a class="nav-link" href="#import-section">导入配置</a>
+        <a class="nav-link" href="#instructions-section">使用说明</a>
+        <a class="nav-link" href="#debug-section">日志/调试</a>
         <a class="nav-link" href="#api-section">API</a>
       </nav>
-      <div class="section-kicker">Local only · {esc(dashboard.get('host') or DEFAULT_HOST)}:{esc(dashboard.get('port') or DEFAULT_PORT)}</div>
+      <div class="section-kicker">仅本机访问 · {esc(dashboard.get('host') or DEFAULT_HOST)}:{esc(dashboard.get('port') or DEFAULT_PORT)}</div>
     </aside>
     <div class="workspace">
       <header class="topbar">
         <div><h1>Bridge Agent</h1><span>{esc(metadata.get('bundle_kind', 'bridge'))} · {esc(metadata.get('platform', 'unknown'))} · {esc(metadata.get('bridge_id', ''))}</span></div>
-        {badge_html(bool(runtime.get('ok')), runtime.get('message') or 'runtime unknown')}
+        {badge_html(bool(runtime.get('ok')), runtime_text)}
       </header>
       <main>
         <section id="overview-section" class="overview-section">
           <div class="metric-grid">
-            <div class="metric"><span>Runtime</span><strong>{esc('running' if runtime.get('ok') else 'check')}</strong></div>
-            <div class="metric"><span>Config</span><strong>{esc(xray_config.get('message') or 'unknown')}</strong></div>
-            <div class="metric"><span>Services</span><strong>{service_count}</strong></div>
-            <div class="metric"><span>Public URLs</span><strong>{public_count}</strong></div>
+            <div class="metric"><span>运行状态</span><strong>{esc(runtime_text)}</strong></div>
+            <div class="metric"><span>Xray 配置</span><strong>{esc(config_text)}</strong></div>
+            <div class="metric"><span>本地服务</span><strong>{service_count}</strong></div>
+            <div class="metric"><span>公网地址</span><strong>{public_count}</strong></div>
           </div>
         </section>
         <section id="services-section" class="services-section panel">
-          <h2>Services</h2>
+          <h2>服务状态</h2>
           <table class="service-table">
-            <thead><tr><th>Name</th><th>Type</th><th>Local</th><th>Public</th><th>Probe</th></tr></thead>
-            <tbody>{''.join(rows) or '<tr><td colspan="5">No services configured</td></tr>'}</tbody>
+            <thead><tr><th>服务</th><th>类型</th><th>本机地址</th><th>公网地址</th><th>探测</th></tr></thead>
+            <tbody>{''.join(rows) or '<tr><td colspan="5">暂无服务配置</td></tr>'}</tbody>
           </table>
         </section>
-        <section id="setup-section" class="setup-section panel">
-          <h2>Setup</h2>
-          <div class="setup-grid">
-            <div class="setup-item"><span class="section-kicker">Service</span><p><code>{esc(runtime_name)}</code></p></div>
-            <div class="setup-item"><span class="section-kicker">Restart</span><p class="mono-line"><code>{esc(restart_command or 'not available')}</code></p></div>
-            <div class="setup-item"><span class="section-kicker">Logs</span><p class="mono-line"><code>{esc(log_command or 'not available')}</code></p></div>
-            <div class="setup-item"><span class="section-kicker">Config</span><p><code>{esc(xray_config.get('path') or '')}</code> {badge_html(bool(xray_config.get('ok')), xray_config.get('message') or '')}</p></div>
+        <section id="import-section" class="import-section panel">
+          <h2>导入配置</h2>
+          <p class="hint">选择 fake-ui 面板导出的 JSON，或配对 Agent 包里的配置文件。支持 <code>xray-bridge.json</code>、<code>bridge-dashboard.json</code>、<code>agent-profile.json</code>。</p>
+          <div class="button-row">
+            <label class="hint" for="import-file">选择 JSON 文件</label>
+            <input id="import-file" type="file" accept=".json,application/json">
+            <button class="btn" type="button" onclick="importConfig('xray-bridge.json')">导入 Xray 配置</button>
+            <button class="btn secondary" type="button" onclick="importConfig('bridge-dashboard.json')">导入控制台配置</button>
+            <button class="btn secondary" type="button" onclick="importConfig('agent-profile.json')">导入配对 Profile</button>
           </div>
-          <pre>{esc(config_preview)}</pre>
+          <div id="import-result" class="notice">导入后如 Xray 已在运行，请重启 bridge 让新配置生效。</div>
         </section>
-        <section id="logs-section" class="logs-section panel">
-          <h2>Logs</h2>
-          <p class="section-kicker">{log_count} readable log file(s)</p>
-          {''.join(log_blocks) or '<p>No logs configured</p>'}
+        <section id="instructions-section" class="instructions-section panel">
+          <h2>使用说明</h2>
+          <div class="guide-grid">
+            <div class="guide-item">
+              <h3>推荐方式：配对 Agent</h3>
+              <ol>
+                <li>在 fake-ui 面板的“内网穿透”里生成配对 Agent 包。</li>
+                <li>解压后运行安装脚本，客户端会自动拉取配置。</li>
+                <li>打开本页确认“运行状态”和“本地服务”均正常。</li>
+              </ol>
+            </div>
+            <div class="guide-item">
+              <h3>手动方式：导入 JSON</h3>
+              <ol>
+                <li>从面板导出 <code>xray-bridge.json</code>。</li>
+                <li>在本页“导入配置”选择文件并点击导入。</li>
+                <li>运行 <code>bash stop-bridge.sh && bash start-bridge.sh</code>。</li>
+              </ol>
+            </div>
+            <div class="guide-item">
+              <h3>常用命令</h3>
+              <p class="mono-line"><code>cd ~/.fake-ui/bridge-client-v3.0.1</code></p>
+              <p class="mono-line"><code>bash open-dashboard.sh</code> 打开本页</p>
+              <p class="mono-line"><code>bash start-bridge.sh</code> 启动 bridge</p>
+              <p class="mono-line"><code>bash stop-bridge.sh</code> 停止 bridge</p>
+            </div>
+            <div class="guide-item">
+              <h3>常见问题</h3>
+              <ul>
+                <li>公网 502：先看本地服务是否可达。</li>
+                <li>配置无效：重新从面板导出或重新配对。</li>
+                <li>服务不可达：确认本机应用监听了对应端口。</li>
+                <li>本页打不开：确认只访问 <code>127.0.0.1:19090</code>。</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+        <section id="debug-section" class="debug-section panel">
+          <h2>日志/调试</h2>
+          <details><summary>运行时详情</summary><pre>{esc(runtime.get('message') or '暂无运行时输出')}</pre></details>
+          <details><summary>安装信息</summary>
+            <div class="setup-grid">
+              <div class="setup-item"><span class="section-kicker">服务</span><p><code>{esc(runtime_name)}</code></p></div>
+              <div class="setup-item"><span class="section-kicker">重启命令</span><p class="mono-line"><code>{esc(restart_command or '暂无')}</code></p></div>
+              <div class="setup-item"><span class="section-kicker">日志命令</span><p class="mono-line"><code>{esc(log_command or '暂无')}</code></p></div>
+              <div class="setup-item"><span class="section-kicker">配置文件</span><p><code>{esc(xray_config.get('path') or '')}</code> {badge_html(bool(xray_config.get('ok')), config_text)}</p></div>
+            </div>
+          </details>
+          <details><summary>配置预览</summary><pre>{esc(config_preview)}</pre></details>
+          <p class="section-kicker">{log_count} 个日志文件可读</p>
+          {''.join(log_blocks) or '<p>暂无日志配置</p>'}
         </section>
         <section id="api-section" class="api-section panel">
           <h2>API</h2>
           <p><code>GET /status.json</code></p>
+          <p><code>POST /api/import</code></p>
         </section>
       </main>
     </div>
   </div>
+  <script>
+    async function importConfig(filename) {{
+      const input = document.getElementById('import-file');
+      const result = document.getElementById('import-result');
+      if (!input.files || !input.files.length) {{ result.textContent = '请先选择 JSON 文件。'; return; }}
+      try {{
+        const text = await input.files[0].text();
+        const content = JSON.parse(text);
+        const response = await fetch('/api/import', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify({{ filename, content }})
+        }});
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || '导入失败');
+        result.textContent = `已导入 ${{payload.filename}}，请按需重启 bridge。`;
+      }} catch (error) {{
+        result.textContent = `导入失败：${{error.message}}`;
+      }}
+    }}
+  </script>
 </body>
 </html>"""
     return html_text.encode("utf-8")
@@ -720,6 +843,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def send_json(self, code, payload):
+        self.send_bytes(code, "application/json; charset=utf-8", json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"))
+
     def do_GET(self):
         if not allowed_host_header(self.headers.get("Host", ""), self.dashboard_port):
             self.send_bytes(403, "text/plain; charset=utf-8", b"forbidden")
@@ -734,6 +860,26 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(200, "text/html; charset=utf-8", render_dashboard(status))
             return
         self.send_bytes(404, "text/plain; charset=utf-8", b"not found")
+
+    def do_POST(self):
+        if not allowed_host_header(self.headers.get("Host", ""), self.dashboard_port):
+            self.send_bytes(403, "text/plain; charset=utf-8", b"forbidden")
+            return
+        path = urlparse(self.path).path
+        if path != "/api/import":
+            self.send_bytes(404, "text/plain; charset=utf-8", b"not found")
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+            if length <= 0 or length > 2 * 1024 * 1024:
+                raise RuntimeError("请求体为空或过大")
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            filename = import_json_file(self.base_dir, payload.get("filename"), payload.get("content"))
+            if filename == "bridge-dashboard.json":
+                self.metadata = load_metadata(self.base_dir)
+            self.send_json(200, {"ok": True, "filename": filename})
+        except Exception as exc:
+            self.send_json(400, {"ok": False, "error": str(exc)})
 
 
 def main():

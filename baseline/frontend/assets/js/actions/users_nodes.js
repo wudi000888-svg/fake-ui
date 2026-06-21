@@ -1,7 +1,7 @@
-import { api, download, downloadText, post } from "../api.js";
-import { openForm } from "../dom.js";
-import { state } from "../state.js";
-import { closeForms, fillNodeForm, fillTunnelForm, fillUserForm } from "./forms.js";
+import { api, download, downloadText, post } from "../api.js?v=3.0.1";
+import { openForm } from "../dom.js?v=3.0.1";
+import { state } from "../state.js?v=3.0.1";
+import { closeForms, fillNodeForm, fillTunnelForm, fillUserForm } from "./forms.js?v=3.0.1";
 
 
 export function applyNodePayload(out) {

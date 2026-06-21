@@ -1,12 +1,12 @@
-import { api } from "./api.js";
-import { state, setBootError, setNotice } from "./state.js";
-import { bindPopstate } from "./router.js";
-import { layout, bindLayoutEvents } from "./components/layout.js";
-import { loginView } from "./components/login.js";
-import { renderCharts } from "./components/charts.js";
-import { renderAppError } from "./components/ui.js";
-import { bindAppActions } from "./actions/handlers.js";
-import { pageForState } from "./pages/registry.js";
+import { api } from "./api.js?v=3.0.1";
+import { state, setBootError, setNotice } from "./state.js?v=3.0.1";
+import { bindPopstate } from "./router.js?v=3.0.1";
+import { layout, bindLayoutEvents } from "./components/layout.js?v=3.0.1";
+import { loginView } from "./components/login.js?v=3.0.1";
+import { renderCharts } from "./components/charts.js?v=3.0.1";
+import { renderAppError } from "./components/ui.js?v=3.0.1";
+import { bindAppActions } from "./actions/handlers.js?v=3.0.1";
+import { pageForState } from "./pages/registry.js?v=3.0.1";
 
 
 const app = document.querySelector("#app");

@@ -1,18 +1,18 @@
-import { renderAdminNodes } from "./admin/nodes.js";
-import { renderAdminOrders } from "./admin/orders.js";
-import { renderAdminOverview } from "./admin/overview.js";
-import { renderAdminBackups } from "./admin/backups.js";
-import { renderAdminHy2 } from "./admin/hy2.js";
-import { renderAdminPlans } from "./admin/plans.js";
-import { renderAdminDashboard, renderAdminSimplePage } from "./admin/simple.js";
-import { renderAdminSettings } from "./admin/settings.js";
-import { renderAdminTunnels } from "./admin/tunnels.js";
-import { renderAdminUsers } from "./admin/users.js";
-import { renderUserAccount } from "./user/account.js";
-import { renderUserDashboard } from "./user/dashboard.js";
-import { renderUserLinks } from "./user/links.js";
-import { renderUserOrders } from "./user/orders.js";
-import { renderUserPlans } from "./user/plans.js";
+import { renderAdminNodes } from "./admin/nodes.js?v=3.0.1";
+import { renderAdminOrders } from "./admin/orders.js?v=3.0.1";
+import { renderAdminOverview } from "./admin/overview.js?v=3.0.1";
+import { renderAdminBackups } from "./admin/backups.js?v=3.0.1";
+import { renderAdminHy2 } from "./admin/hy2.js?v=3.0.1";
+import { renderAdminPlans } from "./admin/plans.js?v=3.0.1";
+import { renderAdminDashboard, renderAdminSimplePage } from "./admin/simple.js?v=3.0.1";
+import { renderAdminSettings } from "./admin/settings.js?v=3.0.1";
+import { renderAdminTunnels } from "./admin/tunnels.js?v=3.0.1";
+import { renderAdminUsers } from "./admin/users.js?v=3.0.1";
+import { renderUserAccount } from "./user/account.js?v=3.0.1";
+import { renderUserDashboard } from "./user/dashboard.js?v=3.0.1";
+import { renderUserLinks } from "./user/links.js?v=3.0.1";
+import { renderUserOrders } from "./user/orders.js?v=3.0.1";
+import { renderUserPlans } from "./user/plans.js?v=3.0.1";
 
 
 export function pageForState(state) {

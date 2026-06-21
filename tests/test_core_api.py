@@ -1292,8 +1292,8 @@ def test_session_cookie_and_security_headers(app_modules):
     assert headers["X-Frame-Options"] == "DENY"
     assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
     assert hasattr(PanelRequestHandler, "send_security_headers")
-    assert web_handler.cache_control_for_path("/assets/js/main.js") == "public, max-age=3600"
-    assert web_handler.cache_control_for_path("/favicon.ico") == "public, max-age=3600"
+    assert web_handler.cache_control_for_path("/assets/js/main.js") == "no-cache"
+    assert web_handler.cache_control_for_path("/favicon.ico") == "no-cache"
     assert web_handler.cache_control_for_path("/login") == "no-store"
 
 

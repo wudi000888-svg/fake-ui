@@ -1,5 +1,5 @@
-import { post } from "../api.js";
-import { showInlineForm } from "../dom.js";
+import { post } from "../api.js?v=3.0.1";
+import { showInlineForm } from "../dom.js?v=3.0.1";
 
 
 export async function handleOrderAction(button, app, { runAction, refresh, setNotice }) {

@@ -1,4 +1,4 @@
-import { esc } from "../../components/layout.js";
+import { esc } from "../../components/layout.js?v=3.0.1";
 
 
 function paymentType(method) {

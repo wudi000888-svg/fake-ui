@@ -1095,6 +1095,78 @@ def test_bridge_dashboard_rejects_non_local_host_header(tmp_path):
     assert excinfo.value.code == 403
 
 
+def test_bridge_dashboard_imports_local_json_files(tmp_path):
+    import tunnel_bridge_bundle
+
+    metadata = tunnel_bridge_bundle.dashboard_metadata(
+        "dedicated",
+        "office-api",
+        "linux",
+        [
+            {
+                "id": "office-api",
+                "kind": "public_https",
+                "name": "Office API",
+                "public_domain": "api.example.com",
+                "portal_port": 18082,
+                "target_host": "127.0.0.1",
+                "target_port": 9,
+            }
+        ],
+    )
+    (tmp_path / "bridge-dashboard.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (tmp_path / "xray-bridge.json").write_text("{}", encoding="utf-8")
+    script = tmp_path / "bridge-dashboard.py"
+    script.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    proc = subprocess.Popen(
+        [sys.executable, str(script), "--host", "127.0.0.1", "--port", str(port)],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        for _ in range(40):
+            try:
+                with opener.open(f"http://127.0.0.1:{port}/status.json", timeout=1):
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise AssertionError("dashboard did not start")
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/import",
+            data=json.dumps({"filename": "xray-bridge.json", "content": {"log": {"loglevel": "warning"}}}).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Host": f"127.0.0.1:{port}"},
+            method="POST",
+        )
+        with opener.open(request, timeout=1) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        bad_request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/import",
+            data=json.dumps({"filename": "../escape.json", "content": {}}).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Host": f"127.0.0.1:{port}"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            opener.open(bad_request, timeout=1)
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+    assert payload == {"ok": True, "filename": "xray-bridge.json"}
+    assert json.loads((tmp_path / "xray-bridge.json").read_text(encoding="utf-8")) == {"log": {"loglevel": "warning"}}
+    assert excinfo.value.code == 400
+
+
 def test_bridge_dashboard_script_uses_fake_ui_shell_and_redacts_sensitive_values():
     import tunnel_bridge_bundle
 
@@ -1107,16 +1179,22 @@ def test_bridge_dashboard_script_uses_fake_ui_shell_and_redacts_sensitive_values
         "side-nav",
         "overview-section",
         "services-section",
-        "setup-section",
-        "logs-section",
+        "import-section",
+        "instructions-section",
+        "debug-section",
         "api-section",
         "metric-grid",
         "service-table",
+        "function importConfig",
+        "fetch('/api/import'",
         "GET /status.json",
     ]:
         assert marker in script
+    for label in ["概览", "服务状态", "导入配置", "使用说明", "日志/调试", "选择 JSON 文件", "常见问题"]:
+        assert label in script
     assert "def redact_sensitive" in script
     assert "def xray_config_preview" in script
+    assert "def import_json_file" in script
     assert "pairing_token" in script
     assert "privateKey" in script
     assert "publicKey" in script
@@ -1171,6 +1249,41 @@ def test_bridge_dashboard_render_redacts_logs_and_config_snippets(tmp_path):
     assert "server-private-key" not in html
     assert "0123456789abcdef" not in html
     assert "[redacted" in html
+
+
+def test_bridge_dashboard_keeps_raw_runtime_output_inside_debug_details(tmp_path):
+    import tunnel_bridge_bundle
+
+    script_path = tmp_path / "bridge_dashboard_runtime.py"
+    script_path.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("bridge_dashboard_runtime", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    raw_runtime = "gui/501/com.fakeui.bridge.client = { active count = 1 path = /Users/example/Library/LaunchAgents/com.fakeui.bridge.client.plist }"
+    status = {
+        "metadata": {
+            "bundle_kind": "bridge-client",
+            "bridge_id": "macbook-web",
+            "platform": "macos",
+            "dashboard": {"host": "127.0.0.1", "port": 19090},
+            "runtime": {"name": "com.fakeui.bridge.client", "restart_command": "launchctl kickstart -k gui/$(id -u)/com.fakeui.bridge.client"},
+            "services": [],
+        },
+        "runtime": {"ok": True, "message": raw_runtime},
+        "xray_config": {"ok": True, "path": str(tmp_path / "xray-bridge.json"), "message": "valid json"},
+        "services": [],
+        "logs": [],
+        "config_preview": "{}",
+    }
+
+    html = module.render_dashboard(status).decode("utf-8")
+    topbar = html.split("</header>", 1)[0]
+
+    assert "运行中" in topbar
+    assert raw_runtime not in topbar
+    assert raw_runtime in html
+    assert "运行时详情" in html
 
 
 def test_bridge_dashboard_accepts_manual_client_runtime(tmp_path):

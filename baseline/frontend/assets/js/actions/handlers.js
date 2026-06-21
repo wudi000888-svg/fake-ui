@@ -1,12 +1,12 @@
-import { api, post } from "../api.js";
-import { formData } from "../dom.js";
-import { navigate } from "../router.js";
-import { state, setNotice } from "../state.js";
-import { setFilter } from "./forms.js";
-import { handleAdminAction, handleAdminForm } from "./admin.js";
-import { handleOrderAction, handleOrderForm } from "./orders.js";
-import { handlePaymentAction, handlePaymentForm } from "./payments.js";
-import { handleUserNodeAction, handleUserNodeForm } from "./users_nodes.js";
+import { api, post } from "../api.js?v=3.0.1";
+import { formData } from "../dom.js?v=3.0.1";
+import { navigate } from "../router.js?v=3.0.1";
+import { state, setNotice } from "../state.js?v=3.0.1";
+import { setFilter } from "./forms.js?v=3.0.1";
+import { handleAdminAction, handleAdminForm } from "./admin.js?v=3.0.1";
+import { handleOrderAction, handleOrderForm } from "./orders.js?v=3.0.1";
+import { handlePaymentAction, handlePaymentForm } from "./payments.js?v=3.0.1";
+import { handleUserNodeAction, handleUserNodeForm } from "./users_nodes.js?v=3.0.1";
 
 
 export function bindAppActions(app, { refresh, render, loadAuthenticatedApp }) {
