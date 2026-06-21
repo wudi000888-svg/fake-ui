@@ -291,7 +291,7 @@ def package(output_dir, version):
 def main():
     parser = argparse.ArgumentParser(description="Package the standalone fake-ui bridge client.")
     parser.add_argument("output_dir", help="Directory for release assets")
-    parser.add_argument("--version", default="0.1.0")
+    parser.add_argument("--version", default="3.0.1")
     args = parser.parse_args()
     for output in package(args.output_dir, args.version):
         print(output)
