@@ -717,7 +717,19 @@ def read_json(path):
 
 
 def write_json(path, data):
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def is_complete():
+    required = ["xray-bridge.json", "bridge-dashboard.json", "agent-state.json"]
+    return all((BASE_DIR / name).exists() for name in required)
+
+
+def clear_pairing_token(profile):
+    profile["pairing_token"] = ""
+    write_json(PROFILE_PATH, profile)
 
 
 def bootstrap_url(panel_url):
@@ -762,11 +774,12 @@ def main():
     if not PROFILE_PATH.exists():
         raise SystemExit("agent-profile.json is missing")
     profile = read_json(PROFILE_PATH)
+    if is_complete():
+        if str(profile.get("pairing_token") or "").strip():
+            clear_pairing_token(profile)
+        print("fake-ui agent bootstrap already complete")
+        return
     if not str(profile.get("pairing_token") or "").strip():
-        required = ["xray-bridge.json", "bridge-dashboard.json", "agent-state.json"]
-        if all((BASE_DIR / name).exists() for name in required):
-            print("fake-ui agent bootstrap already complete")
-            return
         raise SystemExit("agent-profile.json pairing_token is missing")
     result = request_bootstrap(profile)
     if not result.get("ok"):
@@ -783,8 +796,7 @@ def main():
             "platform": profile.get("platform"),
         },
     )
-    profile["pairing_token"] = ""
-    write_json(PROFILE_PATH, profile)
+    clear_pairing_token(profile)
     print("fake-ui agent bootstrap complete")
 
 

@@ -122,11 +122,8 @@ def handle_tunnel_get(path, session):
         bridge_id, action = parts
         try:
             tunnels = shared_bridge_tunnels(bridge_id)
-            cfg = tunnel_config_builder.build_shared_bridge_config(tunnels, shared_bridge_profile(tunnels))
         except RuntimeError as exc:
             return api_error(str(exc), 404)
-        if action == "bridge-config":
-            return ok(filename=f"{bridge_id}-xray-bridge.json", config=cfg)
         if action.endswith("-agent-bundle"):
             platform = action[:-len("-agent-bundle")]
             if platform not in tunnel_catalog.BRIDGE_PLATFORMS:
@@ -138,6 +135,12 @@ def handle_tunnel_get(path, session):
                 content=content,
                 content_type="application/gzip",
             )
+        try:
+            cfg = tunnel_config_builder.build_shared_bridge_config(tunnels, shared_bridge_profile(tunnels))
+        except RuntimeError as exc:
+            return api_error(str(exc), 404)
+        if action == "bridge-config":
+            return ok(filename=f"{bridge_id}-xray-bridge.json", config=cfg)
         if action.endswith("-bundle"):
             platform = action[:-len("-bundle")]
             if platform not in tunnel_catalog.BRIDGE_PLATFORMS:
