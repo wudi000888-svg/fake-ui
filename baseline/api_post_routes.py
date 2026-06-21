@@ -2,6 +2,7 @@ import urllib.parse
 
 import api_v2_routes
 import operations_service as ops
+from api_agent_routes import handle_agent_post
 from api_admin_routes import handle_admin_post
 from api_common import ok, require_admin
 from api_node_routes import handle_node_post
@@ -19,6 +20,10 @@ def handle_post(path, data, session):
     public_result = handle_public_post(clean, data)
     if public_result is not None:
         return public_result
+
+    agent_result = handle_agent_post(clean, data)
+    if agent_result is not None:
+        return agent_result
 
     if not session:
         return api_error("not authenticated", 401)
