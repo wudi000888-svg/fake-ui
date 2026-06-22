@@ -438,6 +438,11 @@ DEFAULT_PORT = 19090
 IMPORT_FILENAMES = {"xray-bridge.json", "bridge-dashboard.json", "agent-profile.json"}
 
 
+def safe_id(value):
+    clean = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value or "").strip()).strip("-")
+    return clean or "bridge"
+
+
 def allowed_host_header(value, port):
     host = str(value or "").strip()
     if not host:
@@ -797,6 +802,24 @@ def infer_public_domain_from_filename(filename):
     return infer_public_domain(".".join(parts[: indexes[-1] + 1]))
 
 
+def infer_bridge_id_from_filename(filename):
+    raw = Path(str(filename or "")).name.lower()
+    raw = re.sub(r"\s+\(\d+\)(?=\.json$|$)", "", raw)
+    raw = re.sub(r"\.json$", "", raw)
+    raw = re.sub(r"[-_\s]+(?:xray[-_\s]+bridge|bridge[-_\s]+dashboard|agent[-_\s]+profile)$", "", raw)
+    return safe_id(raw) if raw else ""
+
+
+def infer_public_domain_from_service_id(service_id):
+    raw = str(service_id or "").strip().lower()
+    if not raw or raw.endswith("-ssh"):
+        return ""
+    parts = [part for part in raw.split("-") if part]
+    if len(parts) < 3:
+        return ""
+    return infer_public_domain(".".join(parts))
+
+
 def service_id_from_tag(tag, fallback):
     raw = str(tag or "")
     prefixes = ["tunnel-local-service-", "tunnel-local-service", "tunnel-reverse-out-", "tunnel-reverse-out"]
@@ -823,6 +846,11 @@ def apply_public_domain(service, public_domain):
     item["public_domain"] = domain
     item["public_url"] = f"https://{domain}/"
     return item
+
+
+def is_private_tcp_service(service_id, host, port):
+    service_id = str(service_id or "").strip().lower()
+    return service_id.endswith("-ssh") or int(port or 0) == 22
 
 
 def infer_dashboard_services_from_xray_config(config, source_filename=""):
@@ -859,17 +887,19 @@ def infer_dashboard_services_from_xray_config(config, source_filename=""):
         reverse_in = route_by_outbound.get(tag)
         reverse = reverse_by_inbound.get(reverse_in) or reverse_by_suffix.get(suffix) or reverse_by_suffix.get("")
         reverse_settings = (reverse or {}).get("settings") or {}
-        public_domain = infer_public_domain(reverse_settings.get("address"))
-        service_id = service_id_from_tag(tag, public_domain.replace(".", "-") if public_domain else f"service-{index + 1}")
+        reverse_domain = infer_public_domain(reverse_settings.get("address"))
+        service_id = service_id_from_tag(tag, reverse_domain.replace(".", "-") if reverse_domain else f"service-{index + 1}")
+        is_private_tcp = is_private_tcp_service(service_id, host, port)
+        public_domain = "" if is_private_tcp else (infer_public_domain_from_service_id(service_id) or reverse_domain)
         services.append(
             {
                 "id": service_id,
-                "name": public_domain or service_id,
-                "kind": "public_https" if public_domain else "private_tcp",
+                "name": "SSH" if is_private_tcp else (public_domain or service_id),
+                "kind": "private_tcp" if is_private_tcp else ("public_https" if public_domain else "private_tcp"),
                 "public_domain": public_domain,
                 "public_url": f"https://{public_domain}/" if public_domain else "",
                 "local": f"{host}:{port}" if port else host,
-                "local_url": f"http://{host}:{port}/" if port else "",
+                "local_url": "" if is_private_tcp else (f"http://{host}:{port}/" if port else ""),
                 "target_host": host or "127.0.0.1",
                 "target_port": int(port or 0),
                 "portal_port": 0,
@@ -921,10 +951,14 @@ def preserve_local_network_overrides(imported_config, existing_config):
     return merged
 
 
-def merge_metadata_services(metadata, services):
+def merge_metadata_services(metadata, services, bridge_id=""):
     merged = dict(metadata or {})
     if not isinstance(merged.get("dashboard"), dict):
         merged["dashboard"] = {"host": DEFAULT_HOST, "port": DEFAULT_PORT}
+    if bridge_id:
+        merged["bridge_id"] = bridge_id
+        if merged.get("bundle_kind") in {"shared", "client-template", "bridge-client"}:
+            merged["bundle_kind"] = "shared"
     existing_services = [item for item in merged.get("services") or [] if isinstance(item, dict)]
     by_id = {str(item.get("id") or ""): item for item in existing_services if item.get("id")}
     by_target = {
@@ -939,7 +973,7 @@ def merge_metadata_services(metadata, services):
             (str(item.get("target_host") or "127.0.0.1"), int(item.get("target_port") or 0))
         )
         if existing:
-            if not item.get("public_domain") and existing.get("public_domain"):
+            if item.get("kind") != "private_tcp" and not item.get("public_domain") and existing.get("public_domain"):
                 item = apply_public_domain(item, existing.get("public_domain"))
             if not item.get("portal_port") and existing.get("portal_port"):
                 item["portal_port"] = int(existing.get("portal_port") or 0)
@@ -951,7 +985,7 @@ def merge_metadata_services(metadata, services):
     merged["services"] = enriched
     if merged["services"]:
         first = merged["services"][0]
-        merged["bridge_id"] = merged.get("bridge_id") or first.get("id") or "manual-bridge"
+        merged["bridge_id"] = bridge_id or merged.get("bridge_id") or first.get("id") or "manual-bridge"
     return merged
 
 
@@ -1452,12 +1486,17 @@ class Handler(BaseHTTPRequestHandler):
             filename = import_json_file(self.base_dir, payload.get("filename"), payload.get("content"))
             metadata_updated = False
             if filename == "xray-bridge.json":
+                source_filename = payload.get("source_filename") or payload.get("original_filename") or ""
                 services = infer_dashboard_services_from_xray_config(
                     payload.get("content") or {},
-                    payload.get("source_filename") or payload.get("original_filename") or "",
+                    source_filename,
                 )
                 if services:
-                    type(self).metadata = merge_metadata_services(type(self).metadata, services)
+                    type(self).metadata = merge_metadata_services(
+                        type(self).metadata,
+                        services,
+                        infer_bridge_id_from_filename(source_filename),
+                    )
                     write_json_atomic(self.base_dir / "bridge-dashboard.json", type(self).metadata)
                     metadata_updated = True
             if filename == "bridge-dashboard.json":

@@ -1933,6 +1933,78 @@ def test_bridge_dashboard_render_redacts_logs_and_config_snippets(tmp_path):
     assert "[redacted" in html
 
 
+def test_bridge_dashboard_import_infers_ssh_as_private_tcp_without_public_domain(tmp_path):
+    import tunnel_bridge_bundle
+    import tunnel_config_builder
+
+    script_path = tmp_path / "bridge_dashboard_runtime.py"
+    script_path.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("bridge_dashboard_runtime", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    tunnels = [
+        sample_public_tunnel(
+            id="site-example-com",
+            name="Site",
+            public_domain="site.example.com",
+            target_port=10001,
+            bridge_mode="shared",
+            bridge_id="office-mac",
+            bridge_platform="macos",
+        ),
+        sample_public_tunnel(
+            id="office-mac-ssh",
+            kind="private_tcp",
+            name="SSH",
+            public_domain="",
+            portal_port=18083,
+            target_port=22,
+            bridge_mode="shared",
+            bridge_id="office-mac",
+            bridge_platform="macos",
+        ),
+    ]
+    cfg = tunnel_config_builder.build_shared_bridge_config(tunnels, {
+        **sample_reality_profile(),
+        "address": "site.example.com",
+    })
+
+    services = module.infer_dashboard_services_from_xray_config(cfg, "office-mac-xray-bridge.json")
+
+    by_id = {item["id"]: item for item in services}
+    assert by_id["site-example-com"]["kind"] == "public_https"
+    assert by_id["site-example-com"]["public_domain"] == "site.example.com"
+    assert by_id["office-mac-ssh"]["kind"] == "private_tcp"
+    assert by_id["office-mac-ssh"]["public_domain"] == ""
+    assert by_id["office-mac-ssh"]["public_url"] == ""
+    assert by_id["office-mac-ssh"]["local_url"] == ""
+
+    merged = module.merge_metadata_services(
+        {
+            "bundle_kind": "shared",
+            "bridge_id": "old-bridge",
+            "dashboard": {"host": "127.0.0.1", "port": 19090},
+            "runtime": {"kind": "manual"},
+            "services": [
+                {
+                    "id": "office-mac-ssh",
+                    "kind": "public_https",
+                    "public_domain": "site.example.com",
+                    "target_host": "127.0.0.1",
+                    "target_port": 22,
+                }
+            ],
+        },
+        services,
+        "office-mac",
+    )
+    merged_by_id = {item["id"]: item for item in merged["services"]}
+    assert merged["bridge_id"] == "office-mac"
+    assert merged_by_id["office-mac-ssh"]["kind"] == "private_tcp"
+    assert merged_by_id["office-mac-ssh"]["public_domain"] == ""
+
+
 def test_bridge_dashboard_keeps_raw_runtime_output_inside_debug_details(tmp_path):
     import tunnel_bridge_bundle
 

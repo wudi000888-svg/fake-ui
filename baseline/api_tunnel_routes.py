@@ -149,6 +149,9 @@ def ensure_default_shared_ssh(tunnel):
     if not bridge_id:
         return None
     for item in tunnel_catalog.list_tunnels(include_disabled=True):
+        if int(item.get("target_port") or 0) == 22 and not item.get("public_domain"):
+            return item
+    for item in tunnel_catalog.list_tunnels(include_disabled=True):
         if (
             item.get("bridge_mode") == tunnel_catalog.BRIDGE_MODE_SHARED
             and item.get("bridge_id") == bridge_id
@@ -181,6 +184,59 @@ def ensure_default_shared_ssh(tunnel):
         "flow": tunnel.get("flow") or tunnel_catalog.DEFAULT_FLOW,
     }
     return tunnel_catalog.upsert_tunnel(fill_tunnel_defaults(data))
+
+
+def find_existing_tunnel_for_save(data):
+    data = data or {}
+    public_domain = tunnel_catalog.clean_domain(data.get("public_domain", "")) if data.get("public_domain") else ""
+    node_id = tunnel_catalog.clean_id(
+        data.get("id")
+        or (tunnel_catalog.id_from_domain(public_domain) if public_domain else "")
+        or data.get("name")
+    )
+    for item in tunnel_catalog.list_tunnels(include_disabled=True):
+        if item.get("id") == node_id:
+            return item
+    return None
+
+
+def default_shared_bridge_id(exclude_tunnel_id=""):
+    groups = {}
+    for item in tunnel_catalog.list_tunnels(include_disabled=False):
+        bridge_id = item.get("bridge_id")
+        if (
+            item.get("bridge_mode") != tunnel_catalog.BRIDGE_MODE_SHARED
+            or not bridge_id
+            or item.get("id") == exclude_tunnel_id
+        ):
+            continue
+        group = groups.setdefault(
+            bridge_id,
+            {"bridge_id": bridge_id, "public_count": 0, "min_port": int(item.get("portal_port") or 999999)},
+        )
+        group["min_port"] = min(group["min_port"], int(item.get("portal_port") or 999999))
+        if item.get("kind") == tunnel_catalog.KIND_PUBLIC_HTTPS:
+            group["public_count"] += 1
+    if not groups:
+        return ""
+    preferred = sorted(groups.values(), key=lambda item: (-item["public_count"], item["min_port"], item["bridge_id"]))[0]
+    return preferred["bridge_id"]
+
+
+def prepare_tunnel_save_data(data):
+    data = dict(data or {})
+    if data.get("bridge_mode") != tunnel_catalog.BRIDGE_MODE_SHARED:
+        return data
+    if str(data.get("bridge_id") or "").strip():
+        return data
+    existing = find_existing_tunnel_for_save(data)
+    if existing and existing.get("bridge_mode") == tunnel_catalog.BRIDGE_MODE_SHARED and existing.get("bridge_id"):
+        data["bridge_id"] = existing.get("bridge_id")
+        return data
+    preferred = default_shared_bridge_id(exclude_tunnel_id=(existing or {}).get("id", ""))
+    if preferred:
+        data["bridge_id"] = preferred
+    return data
 
 
 def shared_bridge_tunnels(bridge_id):
@@ -366,8 +422,9 @@ def handle_tunnel_post(clean, data, session):
     if clean == "/api/tunnels/save":
         previous_catalog = tunnel_catalog.load_catalog()
         try:
-            validate_public_domain_for_save(data or {})
-            tunnel = tunnel_catalog.upsert_tunnel(fill_tunnel_defaults(data or {}))
+            save_data = prepare_tunnel_save_data(data or {})
+            validate_public_domain_for_save(save_data)
+            tunnel = tunnel_catalog.upsert_tunnel(fill_tunnel_defaults(save_data))
             ensure_default_shared_ssh(tunnel)
             backup, nginx = apply_after_catalog_change(previous_catalog)
         except RuntimeError as exc:

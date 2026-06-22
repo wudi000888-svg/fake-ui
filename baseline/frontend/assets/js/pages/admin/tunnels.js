@@ -177,14 +177,18 @@ function primaryAgentCard(groups) {
 function serviceCard(tunnel) {
   const bridgeMode = tunnel.bridge_mode === "shared" ? `共享 Agent ${tunnel.bridge_id || "default"}` : "独立 Agent";
   const status = tunnel.enabled === false ? "停用" : "在线";
-  const domainLabel = tunnel.kind === "private_tcp" ? "TCP 无需域名" : (tunnel.public_domain || "未配置域名");
+  const isPrivateTcp = tunnel.kind === "private_tcp";
+  const domainLabel = isPrivateTcp ? "TCP 无需域名" : (tunnel.public_domain || "未配置域名");
+  const routeLabel = isPrivateTcp
+    ? `VPS TCP 入口 ${tunnel.portal || ""}`
+    : `${tunnel.server_address || ""}:${tunnel.server_port || "443"} · SNI ${tunnel.reality_sni || "www.cloudflare.com"}`;
   return `
     <article class="admin-card node-admin-card tunnel-service-card">
       <div>
         <strong>${esc(tunnel.display_name || tunnel.name || tunnel.id)}</strong>
         <span>${esc(tunnel.portal || "")} -> ${esc(tunnel.target || "")} · ${status}</span>
       </div>
-      <p>${esc(domainLabel)} · ${esc(tunnel.server_address || "")}:${esc(tunnel.server_port || "443")} · SNI ${esc(tunnel.reality_sni || "www.cloudflare.com")} · ${esc(bridgeMode)}</p>
+      <p>${esc(domainLabel)} · ${esc(routeLabel)} · ${esc(bridgeMode)}</p>
       <div class="admin-actions">
         <button class="secondary" data-action="tunnel-edit" data-tunnel="${esc(tunnel.id)}" type="button">编辑</button>
         <button class="secondary" data-action="tunnel-action" data-tunnel="${esc(tunnel.id)}" data-tunnel-action="${tunnel.enabled === false ? "enable" : "disable"}" type="button">${tunnel.enabled === false ? "启用" : "停用"}</button>

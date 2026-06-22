@@ -1450,6 +1450,83 @@ def test_shared_bridge_save_adds_private_tcp_ssh_by_default(app_modules, monkeyp
     assert ssh_local["settings"]["redirect"] == "127.0.0.1:22"
 
 
+def test_shared_public_tunnel_defaults_to_existing_shared_bridge(app_modules, monkeypatch):
+    api = app_modules["api"]
+    monkeypatch.setattr(
+        app_modules["api_tunnel_routes"].xray_runtime,
+        "load_config",
+        lambda: {
+            "inbounds": [
+                {
+                    "tag": "vless-reality-in",
+                    "listen": "0.0.0.0",
+                    "port": 8443,
+                    "protocol": "vless",
+                    "settings": {"clients": [], "decryption": "none"},
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "dest": "www.cloudflare.com:443",
+                            "serverNames": ["www.cloudflare.com"],
+                            "publicKey": "server-public-key",
+                            "privateKey": "server-private-key",
+                            "shortIds": ["0123456789abcdef"],
+                        },
+                    },
+                }
+            ],
+            "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+            "routing": {"rules": []},
+        },
+    )
+
+    status, first = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "public_domain": "first.example.com",
+            "name": "First",
+            "target_port": "3000",
+            "bridge_mode": "shared",
+            "bridge_id": "office-mac",
+            "bridge_platform": "macos",
+        },
+        admin_session(app_modules),
+    )
+    assert status == 200, first
+
+    status, second = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "public_domain": "second.example.com",
+            "name": "Second",
+            "target_port": "3001",
+            "bridge_mode": "shared",
+            "bridge_platform": "macos",
+        },
+        admin_session(app_modules),
+    )
+
+    assert status == 200, second
+    by_id = {item["id"]: item for item in second["tunnels"]}
+    assert by_id["second-example-com"]["bridge_id"] == "office-mac"
+    assert by_id["second-example-com"]["bridge_mode"] == "shared"
+    ssh_tunnels = [
+        item for item in second["tunnels"]
+        if item["kind"] == "private_tcp" and item["target_port"] == 22 and item["bridge_mode"] == "shared"
+    ]
+    assert len(ssh_tunnels) == 1
+    assert ssh_tunnels[0]["bridge_id"] == "office-mac"
+
+    status, body = api.handle_get("/api/tunnels/bridges/office-mac/bridge-config", admin_session(app_modules))
+
+    assert status == 200
+    tags = [item["tag"] for item in body["config"]["outbounds"]]
+    assert "tunnel-reverse-out-first-example-com" in tags
+    assert "tunnel-reverse-out-second-example-com" in tags
+    assert "tunnel-reverse-out-office-mac-ssh" in tags
+
+
 def test_shared_bridge_default_ssh_does_not_overwrite_existing_dedicated_tunnel(app_modules, monkeypatch):
     api = app_modules["api"]
     monkeypatch.setattr(
@@ -1515,6 +1592,70 @@ def test_shared_bridge_default_ssh_does_not_overwrite_existing_dedicated_tunnel(
     assert len(auto_ssh) == 1
     assert auto_ssh[0]["id"] == "office-mac-ssh-1"
     assert auto_ssh[0]["target_port"] == 22
+
+
+def test_shared_bridge_default_ssh_is_global_not_per_bridge(app_modules, monkeypatch):
+    api = app_modules["api"]
+    monkeypatch.setattr(
+        app_modules["api_tunnel_routes"].xray_runtime,
+        "load_config",
+        lambda: {
+            "inbounds": [
+                {
+                    "tag": "vless-reality-in",
+                    "port": 8443,
+                    "settings": {"clients": [], "decryption": "none"},
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "serverNames": ["www.cloudflare.com"],
+                            "publicKey": "server-public-key",
+                            "privateKey": "server-private-key",
+                            "shortIds": ["0123456789abcdef"],
+                        },
+                    },
+                }
+            ],
+            "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+            "routing": {"rules": []},
+        },
+    )
+
+    status, first = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "public_domain": "first.example.com",
+            "name": "First",
+            "target_port": "3000",
+            "bridge_mode": "shared",
+            "bridge_id": "first-bridge",
+            "bridge_platform": "macos",
+        },
+        admin_session(app_modules),
+    )
+    assert status == 200, first
+
+    status, second = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "public_domain": "second.example.com",
+            "name": "Second",
+            "target_port": "3001",
+            "bridge_mode": "shared",
+            "bridge_id": "second-bridge",
+            "bridge_platform": "macos",
+        },
+        admin_session(app_modules),
+    )
+
+    assert status == 200, second
+    default_ssh = [
+        item for item in second["tunnels"]
+        if item["kind"] == "private_tcp" and item["target_port"] == 22 and item["public_domain"] == ""
+    ]
+    assert len(default_ssh) == 1
+    assert default_ssh[0]["bridge_id"] == "first-bridge"
 
 
 def test_admin_can_export_dedicated_bridge_bundle_for_backend_platforms(app_modules, monkeypatch):
