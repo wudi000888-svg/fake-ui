@@ -201,6 +201,29 @@ def shared_bridge_profile(tunnels):
     return tunnel_catalog.reality_profile_for_tunnel(first)
 
 
+def apply_tunnel_entries():
+    tunnels = tunnel_catalog.list_tunnels(include_disabled=False)
+    cfg = tunnel_config_builder.build_portal_config(
+        xray_runtime.load_config(),
+        tunnels,
+    )
+    backup = xray_runtime.write_and_restart_xray(cfg)
+    nginx = tunnel_nginx.apply_native_nginx(tunnels)
+    return str(backup), nginx
+
+
+def apply_after_catalog_change(previous_catalog):
+    try:
+        return apply_tunnel_entries()
+    except Exception:
+        tunnel_catalog.save_catalog(previous_catalog)
+        try:
+            apply_tunnel_entries()
+        except Exception:
+            pass
+        raise
+
+
 def panel_url():
     return (os.getenv("PUBLIC_BASE_URL") or app_urls.absolute_url("/")).rstrip("/")
 
@@ -235,6 +258,14 @@ def handle_tunnel_get(path, session):
             tunnels = shared_bridge_tunnels(bridge_id)
         except RuntimeError as exc:
             return api_error(str(exc), 404)
+        if action == "agent-bundle":
+            pairing = agent_pairing.create_pairing("shared", bridge_id, "auto", created_by=session.get("u", "admin"))
+            content = tunnel_bridge_bundle.build_universal_paired_agent_bundle(bridge_id, tunnels, pairing, panel_url())
+            return ok(
+                filename=f"{bridge_id}-agent-bridge.tgz",
+                content=content,
+                content_type="application/gzip",
+            )
         if action.endswith("-agent-bundle"):
             platform = action[:-len("-agent-bundle")]
             if platform not in tunnel_catalog.BRIDGE_PLATFORMS:
@@ -270,6 +301,20 @@ def handle_tunnel_get(path, session):
         tunnel = tunnel_catalog.get_tunnel(node_id)
         cfg = tunnel_config_builder.build_bridge_config(tunnel, tunnel_catalog.reality_profile_for_tunnel(tunnel))
         return ok(filename=f"{tunnel.get('id')}-xray-bridge.json", config=cfg)
+
+    suffix = "/agent-bundle"
+    if clean.startswith(prefix) and clean.endswith(suffix):
+        node_id = urllib.parse.unquote(clean[len(prefix):-len(suffix)].strip("/"))
+        tunnel = tunnel_catalog.get_tunnel(node_id)
+        if tunnel.get("bridge_mode") == tunnel_catalog.BRIDGE_MODE_SHARED:
+            return api_error("shared bridge tunnels must use the shared paired agent endpoint", 400)
+        pairing = agent_pairing.create_pairing("dedicated", tunnel.get("id"), "auto", created_by=session.get("u", "admin"))
+        content = tunnel_bridge_bundle.build_universal_paired_bundle(tunnel, pairing, panel_url())
+        return ok(
+            filename=f"{tunnel.get('id')}-agent-bridge.tgz",
+            content=content,
+            content_type="application/gzip",
+        )
 
     suffix = "-agent-bundle"
     if clean.startswith(prefix) and clean.endswith(suffix):
@@ -319,35 +364,50 @@ def handle_tunnel_post(clean, data, session):
         return err
 
     if clean == "/api/tunnels/save":
+        previous_catalog = tunnel_catalog.load_catalog()
         try:
             validate_public_domain_for_save(data or {})
             tunnel = tunnel_catalog.upsert_tunnel(fill_tunnel_defaults(data or {}))
             ensure_default_shared_ssh(tunnel)
+            backup, nginx = apply_after_catalog_change(previous_catalog)
         except RuntimeError as exc:
             return api_error(str(exc), 400)
         audit_log.write(session.get("u", "admin"), "tunnel.save", tunnel.get("id", ""), tunnel_catalog.public_tunnel(tunnel))
-        return ok(tunnel=tunnel_catalog.public_tunnel(tunnel), tunnels=tunnel_catalog.list_public_tunnels(), domain_options=current_domain_options())
+        return ok(
+            tunnel=tunnel_catalog.public_tunnel(tunnel),
+            tunnels=tunnel_catalog.list_public_tunnels(),
+            domain_options=current_domain_options(),
+            applied=True,
+            backup=backup,
+            nginx=nginx,
+        )
 
     if clean == "/api/tunnels/action":
         action = (data or {}).get("action", "")
         node_id = (data or {}).get("id", "")
-        if action == "delete":
-            tunnel = tunnel_catalog.delete_tunnel(node_id)
-        elif action in ("enable", "disable"):
-            tunnel = tunnel_catalog.set_tunnel_enabled(node_id, action == "enable")
-        else:
-            raise RuntimeError("unknown tunnel action")
+        previous_catalog = tunnel_catalog.load_catalog()
+        try:
+            if action == "delete":
+                tunnel = tunnel_catalog.delete_tunnel(node_id)
+            elif action in ("enable", "disable"):
+                tunnel = tunnel_catalog.set_tunnel_enabled(node_id, action == "enable")
+            else:
+                return api_error("unknown tunnel action", 400)
+            backup, nginx = apply_after_catalog_change(previous_catalog)
+        except RuntimeError as exc:
+            return api_error(str(exc), 400)
         audit_log.write(session.get("u", "admin"), "tunnel." + action, node_id)
-        return ok(tunnel=tunnel_catalog.public_tunnel(tunnel), tunnels=tunnel_catalog.list_public_tunnels(), domain_options=current_domain_options())
+        return ok(
+            tunnel=tunnel_catalog.public_tunnel(tunnel),
+            tunnels=tunnel_catalog.list_public_tunnels(),
+            domain_options=current_domain_options(),
+            applied=True,
+            backup=backup,
+            nginx=nginx,
+        )
 
     if clean == "/api/tunnels/apply":
-        tunnels = tunnel_catalog.list_tunnels(include_disabled=False)
-        cfg = tunnel_config_builder.build_portal_config(
-            xray_runtime.load_config(),
-            tunnels,
-        )
-        backup = xray_runtime.write_and_restart_xray(cfg)
-        nginx = tunnel_nginx.apply_native_nginx(tunnels)
+        backup, nginx = apply_tunnel_entries()
         audit_log.write(session.get("u", "admin"), "tunnel.apply", "xray-nginx", {"backup": str(backup), "nginx": nginx})
         return ok(message="穿透入口已应用到 Xray / Nginx", backup=str(backup), nginx=nginx, tunnels=tunnel_catalog.list_public_tunnels(), domain_options=current_domain_options())
 

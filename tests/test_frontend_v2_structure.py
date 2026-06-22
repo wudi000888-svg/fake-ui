@@ -194,7 +194,6 @@ def test_frontend_exposes_tunnel_management_screen():
     assert 'data-action="tunnel-agent-config-export"' in tunnels
     assert 'data-action="tunnel-shared-agent-config-export"' in tunnels
     assert 'data-action="tunnel-agent-bundle-export"' in tunnels
-    assert 'data-platform="${esc(platform)}"' in tunnels
     assert 'data-action="tunnel-shared-agent-bundle-export"' in tunnels
     assert 'data-action="tunnel-portal-export"' in tunnels
     assert 'data-action="tunnel-portal-apply"' in tunnels
@@ -218,8 +217,10 @@ def test_frontend_exposes_tunnel_management_screen():
     assert 'tunnel-shared-agent-config-export' in handlers
     assert "/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-bundle" not in handlers
     assert "/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-agent-bundle" in handlers
+    assert "/api/tunnels/${encodeURIComponent(id)}/agent-bundle" in handlers
     assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-bundle" not in handlers
     assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-agent-bundle" in handlers
+    assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/agent-bundle" in handlers
     assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/bridge-config" in handlers
     assert 'api("/api/tunnels/portal-config")' in handlers
     assert 'post("/api/tunnels/apply"' in handlers
@@ -230,6 +231,7 @@ def test_frontend_exposes_tunnel_management_screen():
 
 def test_tunnel_screen_guides_customers_and_groups_shared_agents_once():
     tunnels = read_asset("js/pages/admin/tunnels.js")
+    handlers = read_action_assets()
 
     for label in [
         "详细教程",
@@ -250,6 +252,10 @@ def test_tunnel_screen_guides_customers_and_groups_shared_agents_once():
         "install-windows.ps1",
         "./install-windows.ps1",
         "PowerShell",
+        "只下载一个通用安装包",
+        "包含 macOS、Linux、Windows 三端脚本",
+        "高级：查看后端客户端分组",
+        "推荐后端客户端",
     ]:
         assert label in tunnels
     for example in ["macbook-web", "test.guangyuego.top", "mac.guangyuego.top", "vless.guangyuego.top"]:
@@ -264,6 +270,14 @@ def test_tunnel_screen_guides_customers_and_groups_shared_agents_once():
     assert "visibleDedicatedTunnels" in tunnels
     assert "visibleActiveTunnels" in tunnels
     assert "visibleDisabledTunnels" in tunnels
+    assert "primaryAgentCard" in tunnels
+    assert "agentGroups" in tunnels
+    assert 'data-action="tunnel-universal-agent-bundle-export"' in tunnels
+    assert 'data-platform="${esc(platform)}"' not in tunnels
+    assert 'data-action="tunnel-agent-bundle-export"' in tunnels
+    assert 'data-action="tunnel-shared-agent-bundle-export"' in tunnels
+    assert 'tunnel-universal-agent-bundle-export' in handlers
+    assert '/agent-bundle' in handlers
     assert 'data-action="tunnel-agent-bundle-export"' in tunnels
     assert 'data-action="tunnel-shared-agent-bundle-export"' in tunnels
     assert 'data-action="tunnel-agent-config-export"' in tunnels

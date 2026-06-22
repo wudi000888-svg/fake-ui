@@ -84,6 +84,18 @@ def test_create_pairing_hashes_token_and_returns_raw_token_once(pairing_modules)
     assert record["platform"] == "macos"
 
 
+def test_create_pairing_accepts_auto_platform_for_universal_bundle(pairing_modules):
+    pairing = pairing_modules["agent_pairing"]
+    settings = importlib.import_module("repositories.sqlite_settings").SQLiteSettingsRepository()
+
+    result = pairing.create_pairing("shared", "office-mac", "auto", created_by="admin")
+    stored = settings.get("agent_pairings")
+    record = stored["pairings"][result["record"]["token_id"]]
+
+    assert result["record"]["platform"] == "auto"
+    assert record["platform"] == "auto"
+
+
 def test_bootstrap_agent_consumes_valid_token_once(pairing_modules):
     pairing = pairing_modules["agent_pairing"]
     tunnel_catalog = pairing_modules["tunnel_catalog"]

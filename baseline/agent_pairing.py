@@ -16,6 +16,7 @@ SETTINGS_KEY = "agent_pairings"
 BUNDLE_KINDS = {"dedicated", "shared"}
 CAPABILITIES = ["bootstrap", "local_status"]
 DEFAULT_TTL_MINUTES = 30
+AUTO_PLATFORM = "auto"
 
 
 def now_utc():
@@ -109,10 +110,17 @@ def clean_bundle_kind(value):
     return kind
 
 
+def clean_pairing_platform(value):
+    platform = str(value or "").strip().lower()
+    if platform in {AUTO_PLATFORM, "universal"}:
+        return AUTO_PLATFORM
+    return tunnel_catalog.clean_bridge_platform(platform)
+
+
 def create_pairing(bundle_kind, bridge_id, platform, created_by="admin", ttl_minutes=DEFAULT_TTL_MINUTES):
     kind = clean_bundle_kind(bundle_kind)
     clean_bridge_id = tunnel_catalog.clean_id(bridge_id)
-    clean_platform = tunnel_catalog.clean_bridge_platform(platform)
+    clean_platform = clean_pairing_platform(platform)
     created_at = now_utc()
     raw_token = secrets.token_urlsafe(32)
     token_id = "pair_" + secrets.token_urlsafe(12)
@@ -218,11 +226,22 @@ def shared_bridge_config(bridge_id, platform):
     return cfg, metadata
 
 
-def bridge_config_for_pairing(record):
+def effective_platform_for_record(record, requested_platform=""):
+    stored = str((record or {}).get("platform") or "").strip().lower()
+    if stored != AUTO_PLATFORM:
+        return tunnel_catalog.clean_bridge_platform(stored)
+    requested = str(requested_platform or "").strip().lower()
+    if requested in {AUTO_PLATFORM, "universal", ""}:
+        raise RuntimeError("agent platform is required")
+    return tunnel_catalog.clean_bridge_platform(requested)
+
+
+def bridge_config_for_pairing(record, requested_platform=""):
+    platform = effective_platform_for_record(record, requested_platform)
     if record.get("bundle_kind") == "dedicated":
-        return dedicated_bridge_config(record.get("bridge_id"), record.get("platform"))
+        return dedicated_bridge_config(record.get("bridge_id"), platform)
     if record.get("bundle_kind") == "shared":
-        return shared_bridge_config(record.get("bridge_id"), record.get("platform"))
+        return shared_bridge_config(record.get("bridge_id"), platform)
     raise RuntimeError("bundle kind is invalid")
 
 
@@ -245,14 +264,15 @@ def validate_bootstrap_request(data):
 def bootstrap_agent(data):
     token_id, pairing_token = validate_bootstrap_request(data)
     snapshot = pairing_snapshot(token_id, pairing_token)
-    xray_config, dashboard_metadata = bridge_config_for_pairing(snapshot)
+    effective_platform = effective_platform_for_record(snapshot, (data or {}).get("platform"))
+    xray_config, dashboard_metadata = bridge_config_for_pairing(snapshot, effective_platform)
     record = mark_pairing_used(token_id, pairing_token, expected=snapshot)
     runtime = dashboard_metadata.get("runtime") or {}
     agent = {
         "agent_id": record.get("agent_id"),
         "bridge_id": record.get("bridge_id"),
         "bundle_kind": record.get("bundle_kind"),
-        "platform": record.get("platform"),
+        "platform": effective_platform,
         "capabilities": list(record.get("capabilities") or CAPABILITIES),
     }
     install = {

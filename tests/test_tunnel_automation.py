@@ -811,6 +811,100 @@ def test_paired_shared_agent_bundle_contains_shared_profile_and_installer_bootst
     assert token_hits == [f"{root}/agent-profile.json"]
 
 
+def test_universal_paired_agent_bundle_contains_all_platform_installers_and_profile():
+    import tunnel_bridge_bundle
+
+    tunnel = sample_public_tunnel()
+    pairing = fake_pairing("secret-token-universal")
+    pairing["record"].update({"platform": "universal"})
+
+    content = tunnel_bridge_bundle.build_universal_paired_bundle(
+        tunnel,
+        pairing,
+        "https://panel.example.test",
+    )
+    texts = read_tar_texts(content)
+    root = "office-api-agent-bridge"
+
+    assert f"{root}/agent-profile.json" in texts
+    assert f"{root}/bootstrap-agent.py" in texts
+    assert f"{root}/bridge-dashboard.py" in texts
+    assert f"{root}/bridge-dashboard.json" in texts
+    assert f"{root}/install-macos.sh" in texts
+    assert f"{root}/install-linux.sh" in texts
+    assert f"{root}/install-windows.ps1" in texts
+    assert f"{root}/xray-bridge.json" not in texts
+
+    profile = json.loads(texts[f"{root}/agent-profile.json"])
+    metadata = json.loads(texts[f"{root}/bridge-dashboard.json"])
+    readme = texts[f"{root}/README.md"]
+
+    assert profile["panel_url"] == "https://panel.example.test"
+    assert profile["bridge_id"] == "office-api"
+    assert profile["bundle_kind"] == "dedicated"
+    assert profile["platform"] == "auto"
+    assert profile["pairing_token"] == "secret-token-universal"
+    assert metadata["platform"] == "auto"
+    assert "macOS" in readme
+    assert "Linux" in readme
+    assert "Windows" in readme
+    assert "install-macos.sh" in readme
+    assert "install-linux.sh" in readme
+    assert "install-windows.ps1" in readme
+    token_hits = [name for name, text in texts.items() if "secret-token-universal" in text]
+    assert token_hits == [f"{root}/agent-profile.json"]
+
+
+def test_universal_shared_paired_agent_bundle_contains_all_platform_installers():
+    import tunnel_bridge_bundle
+
+    tunnels = [
+        sample_public_tunnel(
+            id="web",
+            name="Web",
+            public_domain="web.example.com",
+            target_port=3000,
+            bridge_mode="shared",
+            bridge_id="office-linux",
+        ),
+        sample_public_tunnel(
+            id="api",
+            name="API",
+            public_domain="api.example.com",
+            portal_port=18083,
+            target_port=5000,
+            client_id="33333333-3333-4333-8333-333333333333",
+            bridge_mode="shared",
+            bridge_id="office-linux",
+        ),
+    ]
+    pairing = fake_pairing("secret-token-shared-universal")
+    pairing["record"].update({"bridge_id": "office-linux", "bundle_kind": "shared", "platform": "universal"})
+
+    content = tunnel_bridge_bundle.build_universal_paired_agent_bundle(
+        "office-linux",
+        tunnels,
+        pairing,
+        "https://panel.example.test/",
+    )
+    texts = read_tar_texts(content)
+    root = "office-linux-agent-bridge"
+
+    assert f"{root}/agent-profile.json" in texts
+    assert f"{root}/install-macos.sh" in texts
+    assert f"{root}/install-linux.sh" in texts
+    assert f"{root}/install-windows.ps1" in texts
+    profile = json.loads(texts[f"{root}/agent-profile.json"])
+    metadata = json.loads(texts[f"{root}/bridge-dashboard.json"])
+
+    assert profile["bridge_id"] == "office-linux"
+    assert profile["bundle_kind"] == "shared"
+    assert profile["platform"] == "auto"
+    assert metadata["bundle_kind"] == "shared"
+    assert metadata["platform"] == "auto"
+    assert [service["id"] for service in metadata["services"]] == ["web", "api"]
+
+
 def test_bootstrap_agent_script_posts_profile_and_writes_local_state(tmp_path):
     import tunnel_bridge_bundle
 
@@ -1014,6 +1108,50 @@ def test_paired_agent_bundle_routes_create_pairing_and_use_public_base_url(monke
     assert dedicated_profile["panel_url"] == "https://panel.example.test"
     assert dedicated_profile["bundle_kind"] == "dedicated"
     assert shared_profile["panel_url"] == "https://panel.example.test"
+    assert shared_profile["bundle_kind"] == "shared"
+
+
+def test_universal_paired_agent_bundle_routes_create_single_auto_platform_pairing(monkeypatch):
+    import api_tunnel_routes
+
+    tunnel = sample_public_tunnel()
+    shared_tunnels = [sample_public_tunnel(id="web", bridge_mode="shared", bridge_id="office-linux")]
+    created = []
+
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://panel.example.test")
+    monkeypatch.setattr(api_tunnel_routes.tunnel_catalog, "get_tunnel", lambda node_id: tunnel)
+    monkeypatch.setattr(api_tunnel_routes.tunnel_catalog, "list_tunnels", lambda include_disabled=False: shared_tunnels)
+
+    def create_pairing(bundle_kind, bridge_id, platform, created_by="admin"):
+        created.append((bundle_kind, bridge_id, platform, created_by))
+        result = fake_pairing(f"secret-token-{bundle_kind}")
+        result["record"].update({"bundle_kind": bundle_kind, "bridge_id": bridge_id, "platform": platform})
+        return result
+
+    monkeypatch.setattr(api_tunnel_routes.agent_pairing, "create_pairing", create_pairing)
+
+    status, dedicated = api_tunnel_routes.handle_tunnel_get(
+        "/api/tunnels/office-api/agent-bundle",
+        {"u": "alice", "role": "admin"},
+    )
+    status2, shared = api_tunnel_routes.handle_tunnel_get(
+        "/api/tunnels/bridges/office-linux/agent-bundle",
+        {"u": "bob", "role": "admin"},
+    )
+
+    assert status == 200
+    assert status2 == 200
+    assert dedicated["filename"] == "office-api-agent-bridge.tgz"
+    assert shared["filename"] == "office-linux-agent-bridge.tgz"
+    assert created == [
+        ("dedicated", "office-api", "auto", "alice"),
+        ("shared", "office-linux", "auto", "bob"),
+    ]
+    dedicated_profile = json.loads(read_tar_texts(dedicated["content"])["office-api-agent-bridge/agent-profile.json"])
+    shared_profile = json.loads(read_tar_texts(shared["content"])["office-linux-agent-bridge/agent-profile.json"])
+    assert dedicated_profile["platform"] == "auto"
+    assert dedicated_profile["bundle_kind"] == "dedicated"
+    assert shared_profile["platform"] == "auto"
     assert shared_profile["bundle_kind"] == "shared"
 
 

@@ -106,6 +106,38 @@ def app_modules(tmp_path, monkeypatch):
     }
     auth_store.save_auth(auth)
     monkeypatch.setattr(user_admin, "enforce_users_now", lambda: "ok")
+    api_tunnel_routes = sys.modules["api_tunnel_routes"]
+    default_xray_config = {
+        "inbounds": [
+            {
+                "tag": "vless-reality-in",
+                "listen": "0.0.0.0",
+                "port": 8443,
+                "protocol": "vless",
+                "settings": {"clients": [], "decryption": "none"},
+                "streamSettings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "dest": "www.cloudflare.com:443",
+                        "serverNames": ["www.cloudflare.com"],
+                        "publicKey": "server-public-key",
+                        "privateKey": "server-private-key",
+                        "shortIds": ["0123456789abcdef"],
+                    },
+                },
+            }
+        ],
+        "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+        "routing": {"rules": []},
+    }
+    monkeypatch.setattr(api_tunnel_routes.xray_runtime, "load_config", lambda: json.loads(json.dumps(default_xray_config)))
+    monkeypatch.setattr(api_tunnel_routes.xray_runtime, "write_and_restart_xray", lambda cfg: "backup")
+    monkeypatch.setattr(
+        api_tunnel_routes.tunnel_nginx,
+        "apply_native_nginx",
+        lambda tunnels: {"domains": [item.get("public_domain") for item in tunnels if item.get("public_domain")]},
+    )
     return {name: sys.modules[name] for name in MODULES_TO_RELOAD}
 
 
@@ -1140,6 +1172,133 @@ def test_tunnel_apply_updates_xray_and_native_nginx(app_modules, monkeypatch):
     assert payload["nginx"] == {"domains": ["new.example.com"]}
     assert next(item for item in applied["xray"]["inbounds"] if item["tag"] == "tunnel-portal-new-example-com")["port"] == 18081
     assert applied["nginx"][0]["public_domain"] == "new.example.com"
+
+
+def test_tunnel_save_auto_applies_xray_and_native_nginx(app_modules, monkeypatch):
+    api = app_modules["api"]
+    base_cfg = {
+        "inbounds": [
+            {
+                "tag": "vless-reality-in",
+                "listen": "0.0.0.0",
+                "port": 8443,
+                "protocol": "vless",
+                "settings": {"clients": [], "decryption": "none"},
+                "streamSettings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "dest": "www.cloudflare.com:443",
+                        "serverNames": ["www.cloudflare.com"],
+                        "publicKey": "server-public-key",
+                        "privateKey": "server-private-key",
+                        "shortIds": ["0123456789abcdef"],
+                    },
+                },
+            }
+        ],
+        "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+        "routing": {"rules": []},
+    }
+    applied = {}
+    monkeypatch.setattr(app_modules["api_tunnel_routes"].xray_runtime, "load_config", lambda: base_cfg)
+    monkeypatch.setattr(app_modules["api_tunnel_routes"].xray_runtime, "write_and_restart_xray", lambda cfg: applied.setdefault("xray", cfg) or "backup")
+
+    def fake_apply_nginx(tunnels):
+        applied["nginx"] = list(tunnels)
+        return {"domains": [item.get("public_domain") for item in tunnels if item.get("public_domain")]}
+
+    monkeypatch.setattr(app_modules["api_tunnel_routes"].tunnel_nginx, "apply_native_nginx", fake_apply_nginx)
+
+    status, payload = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "public_domain": "new.example.com",
+            "name": "New service",
+            "target_port": "3000",
+        },
+        admin_session(app_modules),
+    )
+
+    assert status == 200
+    assert payload["applied"] is True
+    assert payload["nginx"] == {"domains": ["new.example.com"]}
+    assert next(item for item in applied["xray"]["inbounds"] if item["tag"] == "tunnel-portal-new-example-com")["port"] == 18081
+    assert applied["nginx"][0]["public_domain"] == "new.example.com"
+
+
+def test_tunnel_action_auto_applies_after_disable_and_delete(app_modules, monkeypatch):
+    api = app_modules["api"]
+    base_cfg = {
+        "inbounds": [
+            {
+                "tag": "vless-reality-in",
+                "listen": "0.0.0.0",
+                "port": 8443,
+                "protocol": "vless",
+                "settings": {"clients": [], "decryption": "none"},
+                "streamSettings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "dest": "www.cloudflare.com:443",
+                        "serverNames": ["www.cloudflare.com"],
+                        "publicKey": "server-public-key",
+                        "privateKey": "server-private-key",
+                        "shortIds": ["0123456789abcdef"],
+                    },
+                },
+            }
+        ],
+        "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+        "routing": {"rules": []},
+    }
+    applied = {"xray": []}
+    monkeypatch.setattr(app_modules["api_tunnel_routes"].xray_runtime, "load_config", lambda: base_cfg)
+
+    def fake_write_xray(cfg):
+        applied.setdefault("xray", []).append(cfg)
+        return "backup"
+
+    def fake_apply_nginx(tunnels):
+        applied.setdefault("nginx", []).append(list(tunnels))
+        return {"domains": [item.get("public_domain") for item in tunnels if item.get("public_domain")]}
+
+    monkeypatch.setattr(app_modules["api_tunnel_routes"].xray_runtime, "write_and_restart_xray", fake_write_xray)
+    monkeypatch.setattr(app_modules["api_tunnel_routes"].tunnel_nginx, "apply_native_nginx", fake_apply_nginx)
+
+    status, payload = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "public_domain": "new.example.com",
+            "name": "New service",
+            "target_port": "3000",
+        },
+        admin_session(app_modules),
+    )
+    assert status == 200, payload
+
+    status, payload = api.handle_post(
+        "/api/tunnels/action",
+        {"id": "new-example-com", "action": "disable"},
+        admin_session(app_modules),
+    )
+
+    assert status == 200
+    assert payload["applied"] is True
+    assert "tunnel-portal-new-example-com" not in [item.get("tag") for item in applied["xray"][-1]["inbounds"]]
+    assert applied["nginx"][-1] == []
+
+    status, payload = api.handle_post(
+        "/api/tunnels/action",
+        {"id": "new-example-com", "action": "delete"},
+        admin_session(app_modules),
+    )
+
+    assert status == 200
+    assert payload["applied"] is True
+    assert "tunnel-portal-new-example-com" not in [item.get("tag") for item in applied["xray"][-1]["inbounds"]]
+    assert applied["nginx"][-1] == []
 
 
 def test_admin_can_export_shared_bridge_agent_config_and_bundle(app_modules, monkeypatch):

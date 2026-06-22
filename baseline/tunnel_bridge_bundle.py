@@ -196,7 +196,7 @@ echo "== local service =="
 
 
 def platform_label(platform):
-    return {"macos": "macOS", "linux": "Linux", "windows": "Windows"}.get(safe_id(platform).lower(), platform)
+    return {"macos": "macOS", "linux": "Linux", "windows": "Windows", "auto": "通用"}.get(safe_id(platform).lower(), platform)
 
 
 def command_block(command, platform):
@@ -1747,6 +1747,8 @@ def agent_profile(pairing, panel_url, bundle_kind, bridge_id, platform, agent_na
     record = dict((pairing or {}).get("record") or {})
     capabilities = list(record.get("capabilities") or [])
     agent_id = record.get("agent_id", "")
+    record_platform = str(record.get("platform") or "").strip().lower()
+    profile_platform = "auto" if record_platform in {"auto", "universal"} else (record_platform or safe_id(platform).lower())
     return {
         "schema": 1,
         "panel_url": str(panel_url or ""),
@@ -1754,7 +1756,7 @@ def agent_profile(pairing, panel_url, bundle_kind, bridge_id, platform, agent_na
         "pairing_token": (pairing or {}).get("pairing_token", ""),
         "bridge_id": record.get("bridge_id") or safe_id(bridge_id),
         "bundle_kind": record.get("bundle_kind") or bundle_kind,
-        "platform": record.get("platform") or safe_id(platform).lower(),
+        "platform": profile_platform,
         "agent_name": str(agent_name or safe_id(bridge_id)),
         "dashboard": {"host": DASHBOARD_HOST, "port": DASHBOARD_PORT},
         "reserved": {"agent_id": agent_id, "capabilities": capabilities},
@@ -1780,8 +1782,8 @@ def agent_profile_template(platform="linux"):
     }
 
 
-def add_pairing_assets(tar, root, pairing, panel_url, bundle_kind, bridge_id, platform, agent_name):
-    profile = agent_profile(pairing, panel_url, bundle_kind, bridge_id, platform, agent_name)
+def add_pairing_assets(tar, root, pairing, panel_url, bundle_kind, bridge_id, platform, agent_name, profile_platform=None):
+    profile = agent_profile(pairing, panel_url, bundle_kind, bridge_id, profile_platform or platform, agent_name)
     add_text(tar, f"{root}/agent-profile.json", json.dumps(profile, indent=2, ensure_ascii=False))
     add_text(tar, f"{root}/bootstrap-agent.py", bootstrap_agent_script(), mode=0o755)
 
@@ -2221,6 +2223,60 @@ Uninstall:
 """
 
 
+def universal_agent_readme_text(identifier, bundle_kind, tunnels):
+    rows = "\n".join(
+        f"- {item.get('id')}: {item.get('target_host')}:{item.get('target_port')} via :{item.get('portal_port')}"
+        for item in tunnels
+    )
+    return f"""# fake-ui Bridge Agent
+
+Bridge: {identifier}
+Mode: {bundle_kind}
+
+Services:
+
+{rows}
+
+这个安装包同时包含 macOS、Linux、Windows 三端脚本。客户只需要下载这一份，然后按自己的系统执行对应命令。
+
+macOS:
+
+```bash
+bash install-macos.sh
+```
+
+Linux:
+
+```bash
+sudo bash install-linux.sh
+```
+
+Windows:
+
+```PowerShell
+powershell -ExecutionPolicy Bypass -File .\\install-windows.ps1
+```
+
+安装完成后打开本地控制台：
+
+```bash
+bash open-dashboard.sh
+```
+
+Windows 可运行：
+
+```PowerShell
+powershell -ExecutionPolicy Bypass -File .\\open-dashboard.ps1
+```
+
+控制台地址：http://127.0.0.1:19090/
+"""
+
+
+def universal_root(identifier):
+    return f"{safe_id(identifier)}-agent-bridge"
+
+
 def build_agent_bundle(bridge_id, tunnels, bridge_config, platform):
     platform = safe_id(platform).lower()
     if platform not in {"macos", "linux", "windows"}:
@@ -2250,6 +2306,30 @@ def build_agent_bundle(bridge_id, tunnels, bridge_config, platform):
     return content.getvalue()
 
 
+def build_universal_paired_agent_bundle(bridge_id, tunnels, pairing, panel_url):
+    bid = safe_id(bridge_id)
+    root = universal_root(bid)
+    content = io.BytesIO()
+    with tarfile.open(fileobj=content, mode="w:gz") as tar:
+        add_text(tar, f"{root}/README.md", universal_agent_readme_text(bid, "shared", tunnels))
+        add_dashboard_assets(tar, root, "shared", bid, "auto", tunnels)
+        add_pairing_assets(tar, root, pairing, panel_url, "shared", bid, "macos", bid, profile_platform="auto")
+        add_text(tar, f"{root}/{agent_service_id(bid)}.plist", agent_plist_text(bid))
+        add_text(tar, f"{root}/install-macos.sh", agent_install_macos(bid), mode=0o755)
+        add_text(tar, f"{root}/uninstall-macos.sh", agent_uninstall_macos(bid), mode=0o755)
+        add_text(tar, f"{root}/status-macos.sh", agent_status_script(tunnels, "macos"), mode=0o755)
+        service = f"fake-ui-bridge-{bid}.service"
+        add_text(tar, f"{root}/{service}", linux_service_text(bid))
+        add_text(tar, f"{root}/install-linux.sh", agent_install_linux(bid), mode=0o755)
+        add_text(tar, f"{root}/uninstall-linux.sh", agent_uninstall_linux(bid), mode=0o755)
+        add_text(tar, f"{root}/status-linux.sh", agent_status_script(tunnels, "linux"), mode=0o755)
+        add_text(tar, f"{root}/install-windows.ps1", agent_install_windows(bid))
+        add_text(tar, f"{root}/uninstall-windows.ps1", agent_uninstall_windows(bid))
+        add_text(tar, f"{root}/status-windows.ps1", agent_status_script(tunnels, "windows"))
+        add_text(tar, f"{root}/open-dashboard.ps1", open_dashboard_ps1())
+    return content.getvalue()
+
+
 def build_paired_agent_bundle(bridge_id, tunnels, pairing, panel_url, platform):
     platform = safe_id(platform).lower()
     if platform not in {"macos", "linux", "windows"}:
@@ -2276,4 +2356,38 @@ def build_paired_agent_bundle(bridge_id, tunnels, pairing, panel_url, platform):
             add_text(tar, f"{root}/install-windows.ps1", agent_install_windows(bid))
             add_text(tar, f"{root}/uninstall-windows.ps1", agent_uninstall_windows(bid))
             add_text(tar, f"{root}/status-windows.ps1", agent_status_script(tunnels, platform))
+    return content.getvalue()
+
+
+def build_universal_paired_bundle(tunnel, pairing, panel_url):
+    node_id = safe_id(tunnel.get("id"))
+    root = universal_root(node_id)
+    content = io.BytesIO()
+    with tarfile.open(fileobj=content, mode="w:gz") as tar:
+        add_text(tar, f"{root}/README.md", universal_agent_readme_text(node_id, "dedicated", [tunnel]))
+        add_dashboard_assets(tar, root, "dedicated", tunnel.get("id"), "auto", [tunnel])
+        add_pairing_assets(
+            tar,
+            root,
+            pairing,
+            panel_url,
+            "dedicated",
+            tunnel.get("id"),
+            "macos",
+            tunnel.get("name") or tunnel.get("id"),
+            profile_platform="auto",
+        )
+        add_text(tar, f"{root}/{service_id(tunnel)}.plist", plist_text(tunnel))
+        add_text(tar, f"{root}/install-macos.sh", install_script(tunnel), mode=0o755)
+        add_text(tar, f"{root}/uninstall-macos.sh", uninstall_script(tunnel), mode=0o755)
+        add_text(tar, f"{root}/status-macos.sh", status_script(tunnel), mode=0o755)
+        service = dedicated_linux_service_id(tunnel)
+        add_text(tar, f"{root}/{service}", dedicated_linux_service_text(tunnel))
+        add_text(tar, f"{root}/install-linux.sh", dedicated_install_linux(tunnel), mode=0o755)
+        add_text(tar, f"{root}/uninstall-linux.sh", dedicated_uninstall_linux(tunnel), mode=0o755)
+        add_text(tar, f"{root}/status-linux.sh", agent_status_script([tunnel], "linux"), mode=0o755)
+        add_text(tar, f"{root}/install-windows.ps1", dedicated_install_windows(tunnel))
+        add_text(tar, f"{root}/uninstall-windows.ps1", dedicated_uninstall_windows(tunnel))
+        add_text(tar, f"{root}/status-windows.ps1", agent_status_script([tunnel], "windows"))
+        add_text(tar, f"{root}/open-dashboard.ps1", open_dashboard_ps1())
     return content.getvalue()

@@ -35,6 +35,35 @@ function serviceCountLabel(count) {
 }
 
 
+function agentGroups(tunnels) {
+  const groups = [];
+  for (const { tunnel, services } of uniqueSharedAgents(tunnels)) {
+    groups.push({
+      kind: "shared",
+      id: tunnel.bridge_id || "default",
+      title: tunnel.bridge_id || "default",
+      label: "共享后端客户端",
+      services,
+    });
+  }
+  for (const tunnel of tunnels.filter((item) => item.bridge_mode !== "shared")) {
+    groups.push({
+      kind: "dedicated",
+      id: tunnel.id,
+      title: tunnel.display_name || tunnel.name || tunnel.id,
+      label: "独立后端客户端",
+      services: [tunnel],
+    });
+  }
+  return groups;
+}
+
+
+function serviceNames(services) {
+  return services.map((item) => item.public_domain || item.display_name || item.name || item.id).join("、");
+}
+
+
 function domainOptionsMarkup(domainOptions = {}) {
   const available = domainOptions.available || [];
   return available.map((item) => `<option value="${esc(item.domain || "")}"></option>`).join("");
@@ -85,17 +114,16 @@ function sharedAgentCards(tunnels) {
   return uniqueSharedAgents(tunnels).map(({ tunnel, services }) => {
     const bridgeId = tunnel.bridge_id || "default";
     const platform = tunnel.bridge_platform || "macos";
-    const serviceNames = services.map((item) => item.public_domain || item.display_name || item.name || item.id).join("、");
     return `
       <article class="admin-card tunnel-agent-card">
         <div>
           <strong>共享后端客户端：${esc(bridgeId)}</strong>
           <span>${esc(platformLabel(platform))} · ${serviceCountLabel(services.length)} · 一个后端客户端可以承载多个服务</span>
         </div>
-        <p>安装一次后，${esc(serviceNames || "这些服务")} 都会通过这个客户端回连 VPS。新增同一 Bridge ID 的服务时，通常不需要重新安装客户端。</p>
+        <p>安装一次后，${esc(serviceNames(services) || "这些服务")} 都会通过这个客户端回连 VPS。新增同一 Bridge ID 的服务时，通常不需要重新安装客户端。</p>
         <div class="admin-actions">
           <button class="secondary" data-action="tunnel-shared-agent-config-export" data-bridge="${esc(bridgeId)}" type="button">导出总 JSON</button>
-          <button class="primary" data-action="tunnel-shared-agent-bundle-export" data-bridge="${esc(bridgeId)}" data-platform="${esc(platform)}" type="button">下载配对安装包</button>
+          <button class="primary" data-action="tunnel-shared-agent-bundle-export" data-bridge="${esc(bridgeId)}" type="button">下载通用安装包</button>
         </div>
       </article>
     `;
@@ -105,21 +133,44 @@ function sharedAgentCards(tunnels) {
 
 function dedicatedAgentCards(tunnels) {
   return tunnels.filter((tunnel) => tunnel.bridge_mode !== "shared").map((tunnel) => {
-    const platform = tunnel.bridge_platform || "macos";
     return `
       <article class="admin-card tunnel-agent-card">
         <div>
           <strong>独立后端客户端：${esc(tunnel.display_name || tunnel.name || tunnel.id)}</strong>
-          <span>${esc(platformLabel(platform))} · 只服务这一条映射</span>
+          <span>只服务这一条映射</span>
         </div>
         <p>适合 SSH、数据库或需要单独隔离的服务。下载一个配对安装包，在后端机器运行安装脚本即可自动拉取配置。</p>
         <div class="admin-actions">
           <button class="secondary" data-action="tunnel-agent-config-export" data-tunnel="${esc(tunnel.id)}" type="button">导出总 JSON</button>
-          <button class="primary" data-action="tunnel-agent-bundle-export" data-tunnel="${esc(tunnel.id)}" data-platform="${esc(platform)}" type="button">下载配对安装包</button>
+          <button class="primary" data-action="tunnel-agent-bundle-export" data-tunnel="${esc(tunnel.id)}" type="button">下载通用安装包</button>
         </div>
       </article>
     `;
   }).join("");
+}
+
+
+function primaryAgentCard(groups) {
+  if (!groups.length) return "";
+  const preferred = groups.find((group) => group.kind === "shared") || groups[0];
+  const serviceText = serviceNames(preferred.services);
+  const isOnlyOne = groups.length === 1;
+  return `
+    <article class="admin-card tunnel-agent-card tunnel-primary-agent">
+      <div>
+        <strong>推荐后端客户端：${esc(preferred.title)}</strong>
+        <span>${serviceCountLabel(preferred.services.length)} · 只下载一个通用安装包</span>
+      </div>
+      <p>这个包包含 macOS、Linux、Windows 三端脚本。客户下载这一份，解压后按自己的系统运行安装脚本；${esc(serviceText || "已选择的服务")} 会自动配对到本机客户端。</p>
+      ${isOnlyOne ? "" : `<p>检测到还有 ${groups.length - 1} 个高级分组。普通 Web 服务建议合并到同一个后端客户端；SSH、数据库或需要隔离时再单独下载。</p>`}
+      <div class="admin-actions">
+        ${preferred.kind === "shared"
+          ? `<button class="secondary" data-action="tunnel-shared-agent-config-export" data-bridge="${esc(preferred.id)}" type="button">导出总 JSON</button><button class="primary" data-action="tunnel-universal-agent-bundle-export" data-agent-kind="shared" data-bridge="${esc(preferred.id)}" type="button">下载后端客户端</button>`
+          : `<button class="secondary" data-action="tunnel-agent-config-export" data-tunnel="${esc(preferred.id)}" type="button">导出总 JSON</button><button class="primary" data-action="tunnel-universal-agent-bundle-export" data-agent-kind="dedicated" data-tunnel="${esc(preferred.id)}" type="button">下载后端客户端</button>`
+        }
+      </div>
+    </article>
+  `;
 }
 
 
@@ -154,7 +205,7 @@ function tutorialCard() {
       <div class="tunnel-steps">
         <div class="tunnel-step">
           <b>1</b>
-          <div><strong>下载安装包</strong><p>先在“后端客户端”区域下载对应系统的配对安装包。共享 Agent 只下载一次，同一台机器后续可以挂多个服务。</p></div>
+          <div><strong>下载安装包</strong><p>先在“推荐后端客户端”区域下载一个通用安装包。包内包含 macOS、Linux、Windows 三端脚本，同一台机器后续可以挂多个服务。</p></div>
         </div>
         <div class="tunnel-step">
           <b>2</b>
@@ -200,6 +251,7 @@ export function renderAdminTunnels(data = {}) {
   const visibleDisabledTunnels = visibleTunnels.filter((tunnel) => tunnel.enabled === false);
   const visibleSharedAgentTunnels = visibleActiveTunnels.filter((tunnel) => tunnel.bridge_mode === "shared");
   const visibleDedicatedTunnels = visibleActiveTunnels.filter((tunnel) => tunnel.bridge_mode !== "shared");
+  const groups = agentGroups(visibleActiveTunnels);
   const agentCards = [
     sharedAgentCards(visibleSharedAgentTunnels),
     dedicatedAgentCards(visibleDedicatedTunnels),
@@ -243,7 +295,14 @@ export function renderAdminTunnels(data = {}) {
       <div class="toolbar"><input data-filter="tunnels" value="${esc(query)}" placeholder="搜索穿透节点、入口或本地服务"><button data-action="tunnels-filter" type="button">筛选</button></div>
       <section class="tunnel-section stack">
         <div class="section-title"><h2>后端客户端</h2><p>每台后端机器下载一个配对安装包即可；共享 Agent 下多个服务会自动合并到同一个客户端。</p></div>
-        <div class="card-list compact">${agentCards || `<article class="admin-card empty"><p>${tunnels.length ? "没有匹配的后端客户端" : "暂无后端客户端，先新增穿透服务"}</p><button data-action="tunnel-create-sheet" type="button">新增穿透</button></article>`}</div>
+        <div class="card-list compact">${primaryAgentCard(groups) || `<article class="admin-card empty"><p>${tunnels.length ? "没有匹配的后端客户端" : "暂无后端客户端，先新增穿透服务"}</p><button data-action="tunnel-create-sheet" type="button">新增穿透</button></article>`}</div>
+        ${agentCards ? `
+          <details class="tunnel-agent-advanced">
+            <summary>高级：查看后端客户端分组（${groups.length}）</summary>
+            <p>只有多台后端机器、SSH 独立隔离或排障时才需要看这里。普通客户下载上面的推荐安装包即可。</p>
+            <div class="card-list compact">${agentCards}</div>
+          </details>
+        ` : ""}
       </section>
       <section class="tunnel-section stack">
         <div class="section-title"><h2>服务映射</h2><p>这里管理公网域名、VPS 入口端口和后端本地端口。下载客户端请到上面的“后端客户端”。</p></div>

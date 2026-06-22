@@ -119,9 +119,25 @@ export async function handleUserNodeAction(button, app, { runAction }) {
   }
   if (actionName === "tunnel-agent-bundle-export") {
     const id = button.dataset.tunnel || "";
-    const platform = button.dataset.platform || "macos";
     if (!id) return true;
-    await download(`/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-agent-bundle`);
+    const platform = button.dataset.platform || "";
+    const path = platform
+      ? `/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-agent-bundle`
+      : `/api/tunnels/${encodeURIComponent(id)}/agent-bundle`;
+    await download(path);
+    return true;
+  }
+  if (actionName === "tunnel-universal-agent-bundle-export") {
+    const kind = button.dataset.agentKind || "";
+    if (kind === "shared") {
+      const bridgeId = button.dataset.bridge || "";
+      if (!bridgeId) return true;
+      await download(`/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/agent-bundle`);
+      return true;
+    }
+    const id = button.dataset.tunnel || "";
+    if (!id) return true;
+    await download(`/api/tunnels/${encodeURIComponent(id)}/agent-bundle`);
     return true;
   }
   if (actionName === "tunnel-shared-agent-config-export") {
@@ -133,9 +149,12 @@ export async function handleUserNodeAction(button, app, { runAction }) {
   }
   if (actionName === "tunnel-shared-agent-bundle-export") {
     const bridgeId = button.dataset.bridge || "";
-    const platform = button.dataset.platform || "macos";
     if (!bridgeId) return true;
-    await download(`/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-agent-bundle`);
+    const platform = button.dataset.platform || "";
+    const path = platform
+      ? `/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-agent-bundle`
+      : `/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/agent-bundle`;
+    await download(path);
     return true;
   }
   if (actionName === "tunnel-portal-export") {
