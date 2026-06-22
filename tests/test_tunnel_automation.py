@@ -205,6 +205,46 @@ def test_normalize_private_tcp_tunnel_does_not_require_public_domain():
     assert item["email"] == "tunnel:macbook-ssh"
 
 
+def test_domain_options_mark_resolved_domains_and_hide_reserved_domains(monkeypatch):
+    import tunnel_domains
+
+    tunnels = [
+        {"id": "existing", "public_domain": "used.example.com"},
+        {"id": "ssh", "kind": "private_tcp", "public_domain": ""},
+    ]
+    nodes = [
+        {"id": "vless-main", "kind": "vless", "address": "node.example.com"},
+        {"id": "hy2-main", "kind": "hy2", "address": "hy2.example.com"},
+    ]
+
+    monkeypatch.setattr(tunnel_domains, "resolve_ips", lambda domain: {
+        "ready.example.com": ["203.0.113.10"],
+        "other.example.com": ["198.51.100.7"],
+        "panel.example.com": ["203.0.113.10"],
+        "node.example.com": ["203.0.113.10"],
+        "used.example.com": ["203.0.113.10"],
+    }.get(domain, []))
+
+    result = tunnel_domains.domain_options(
+        candidates=["ready.example.com", "other.example.com", "panel.example.com", "node.example.com", "used.example.com"],
+        server_ips=["203.0.113.10"],
+        panel_domains=["panel.example.com"],
+        node_domains=["node.example.com"],
+        tunnels=tunnels,
+        nodes=nodes,
+    )
+
+    assert [item["domain"] for item in result["available"]] == ["ready.example.com"]
+    assert result["available"][0]["status"] == "resolved"
+    hidden = {item["domain"]: item["reason"] for item in result["unavailable"]}
+    assert hidden == {
+        "other.example.com": "not_resolved_to_server",
+        "panel.example.com": "reserved_panel_domain",
+        "node.example.com": "reserved_node_domain",
+        "used.example.com": "already_used_by_tunnel",
+    }
+
+
 def test_nginx_config_builder_creates_generic_domain_https_and_acme_blocks():
     import tunnel_nginx
 

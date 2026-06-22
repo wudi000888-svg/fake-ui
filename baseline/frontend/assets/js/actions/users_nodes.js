@@ -17,6 +17,7 @@ export function applyNodePayload(out) {
 
 
 export function applyTunnelPayload(out) {
+  if (out?.domain_options) state.data.domain_options = out.domain_options;
   if (out?.tunnels) state.data.tunnels = out.tunnels;
   if (out?.tunnel && !out.tunnels) {
     const tunnels = state.data.tunnels || [];
@@ -109,18 +110,11 @@ export async function handleUserNodeAction(button, app, { runAction }) {
     fillTunnelForm(app, tunnel);
     return true;
   }
-  if (actionName === "tunnel-export") {
+  if (actionName === "tunnel-agent-config-export") {
     const id = button.dataset.tunnel || "";
     if (!id) return true;
     const out = await api(`/api/tunnels/${encodeURIComponent(id)}/bridge-config`);
     downloadText(out.filename || `${id}-xray-bridge.json`, JSON.stringify(out.config || {}, null, 2));
-    return true;
-  }
-  if (actionName === "tunnel-bundle-export") {
-    const id = button.dataset.tunnel || "";
-    const platform = button.dataset.platform || "macos";
-    if (!id) return true;
-    await download(`/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-bundle`);
     return true;
   }
   if (actionName === "tunnel-agent-bundle-export") {
@@ -130,11 +124,11 @@ export async function handleUserNodeAction(button, app, { runAction }) {
     await download(`/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-agent-bundle`);
     return true;
   }
-  if (actionName === "tunnel-shared-bundle-export") {
+  if (actionName === "tunnel-shared-agent-config-export") {
     const bridgeId = button.dataset.bridge || "";
-    const platform = button.dataset.platform || "macos";
     if (!bridgeId) return true;
-    await download(`/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-bundle`);
+    const out = await api(`/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/bridge-config`);
+    downloadText(out.filename || `${bridgeId}-xray-bridge.json`, JSON.stringify(out.config || {}, null, 2));
     return true;
   }
   if (actionName === "tunnel-shared-agent-bundle-export") {

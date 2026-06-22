@@ -9,6 +9,9 @@ def test_install_script_uses_panel_domain_for_hy2_masquerade():
 
     assert "HY2_MASQUERADE_URL=https://$PANEL_DOMAIN" in script
     assert 'HY2_MASQUERADE_URL="https://$PANEL_DOMAIN"' in script
+    assert "TUNNEL_SERVER_IPS=$PUBLIC_IP" in script
+    assert 'TUNNEL_SERVER_IPS="$PUBLIC_IP"' in script
+    assert "无法自动检测公网 IP" in script
     assert "HY2_MASQUERADE_URL=https://$ROOT_DOMAIN" not in script
     assert 'HY2_MASQUERADE_URL="https://$ROOT_DOMAIN"' not in script
 

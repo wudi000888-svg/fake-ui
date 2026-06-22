@@ -62,6 +62,7 @@ MODULES_TO_RELOAD = [
     "hy2_status_service",
     "tunnel_config_builder",
     "tunnel_catalog",
+    "tunnel_domains",
     "api_tunnel_routes",
     "api",
 ]
@@ -814,6 +815,146 @@ def test_admin_can_save_generic_domain_tunnel_and_export_macos_bundle(app_module
     assert isinstance(bundle["content"], bytes)
 
 
+def test_tunnel_api_exposes_only_resolved_non_reserved_domain_options(app_modules, monkeypatch):
+    api = app_modules["api"]
+    domains = app_modules["tunnel_domains"]
+
+    monkeypatch.setenv("PANEL_DOMAIN", "panel.example.test")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://panel.example.test")
+    monkeypatch.setenv("TUNNEL_DOMAIN_CANDIDATES", "ready.example.test,panel.example.test,node.example.test,wrong.example.test")
+    monkeypatch.setenv("TUNNEL_SERVER_IPS", "203.0.113.10")
+    monkeypatch.setattr(
+        app_modules["api_tunnel_routes"].link_settings,
+        "read",
+        lambda: {"vless_address": "node.example.test", "vless_port": 443},
+    )
+    monkeypatch.setattr(domains, "resolve_ips", lambda domain: {
+        "ready.example.test": ["203.0.113.10"],
+        "panel.example.test": ["203.0.113.10"],
+        "node.example.test": ["203.0.113.10"],
+        "wrong.example.test": ["198.51.100.99"],
+    }.get(domain, []))
+
+    status, payload = api.handle_get("/api/tunnels", admin_session(app_modules))
+
+    assert status == 200
+    assert [item["domain"] for item in payload["domain_options"]["available"]] == ["ready.example.test"]
+    hidden = {item["domain"]: item["reason"] for item in payload["domain_options"]["unavailable"]}
+    assert hidden["panel.example.test"] == "reserved_panel_domain"
+    assert hidden["node.example.test"] == "reserved_node_domain"
+    assert hidden["wrong.example.test"] == "not_resolved_to_server"
+
+
+def test_tunnel_save_rejects_public_domain_not_resolved_to_server(app_modules, monkeypatch):
+    api = app_modules["api"]
+    domains = app_modules["tunnel_domains"]
+
+    monkeypatch.setenv("TUNNEL_SERVER_IPS", "203.0.113.10")
+    monkeypatch.setattr(domains, "resolve_ips", lambda domain: ["198.51.100.99"])
+    monkeypatch.setattr(
+        app_modules["api_tunnel_routes"].xray_runtime,
+        "load_config",
+        lambda: {
+            "inbounds": [
+                {
+                    "tag": "vless-reality-in",
+                    "port": 8443,
+                    "settings": {"clients": [], "decryption": "none"},
+                    "streamSettings": {
+                        "security": "reality",
+                        "realitySettings": {
+                            "serverNames": ["www.cloudflare.com"],
+                            "publicKey": "server-public-key",
+                            "privateKey": "server-private-key",
+                            "shortIds": ["0123456789abcdef"],
+                        },
+                    },
+                }
+            ],
+            "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+            "routing": {"rules": []},
+        },
+    )
+
+    status, payload = api.handle_post(
+        "/api/tunnels/save",
+        {"public_domain": "wrong.example.test", "name": "Wrong", "target_port": "3000"},
+        admin_session(app_modules),
+    )
+
+    assert status == 400
+    assert "must resolve to this server" in payload["error"]
+
+
+def test_tunnel_save_rejects_panel_or_proxy_node_domain(app_modules, monkeypatch):
+    api = app_modules["api"]
+    domains = app_modules["tunnel_domains"]
+
+    monkeypatch.setenv("PANEL_DOMAIN", "panel.example.test")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://panel.example.test")
+    monkeypatch.setenv("TUNNEL_SERVER_IPS", "203.0.113.10")
+    monkeypatch.setattr(
+        app_modules["api_tunnel_routes"].link_settings,
+        "read",
+        lambda: {"vless_address": "node.example.test", "vless_port": 443},
+    )
+    monkeypatch.setattr(domains, "resolve_ips", lambda domain: ["203.0.113.10"])
+
+    for public_domain, reason in [
+        ("panel.example.test", "reserved for the panel"),
+        ("node.example.test", "reserved for a proxy node"),
+    ]:
+        status, payload = api.handle_post(
+            "/api/tunnels/save",
+            {"public_domain": public_domain, "name": public_domain, "target_port": "3000"},
+            admin_session(app_modules),
+        )
+        assert status == 400
+        assert reason in payload["error"]
+
+
+def test_tunnel_save_rejects_hy2_domain(app_modules, monkeypatch):
+    api = app_modules["api"]
+    domains = app_modules["tunnel_domains"]
+
+    monkeypatch.setenv("HY2_DOMAIN", "hy.example.test")
+    monkeypatch.setenv("TUNNEL_SERVER_IPS", "203.0.113.10")
+    monkeypatch.setattr(domains, "resolve_ips", lambda domain: ["203.0.113.10"])
+    monkeypatch.setattr(
+        app_modules["api_tunnel_routes"].xray_runtime,
+        "load_config",
+        lambda: {
+            "inbounds": [
+                {
+                    "tag": "vless-reality-in",
+                    "port": 8443,
+                    "settings": {"clients": [], "decryption": "none"},
+                    "streamSettings": {
+                        "security": "reality",
+                        "realitySettings": {
+                            "serverNames": ["www.cloudflare.com"],
+                            "publicKey": "server-public-key",
+                            "privateKey": "server-private-key",
+                            "shortIds": ["0123456789abcdef"],
+                        },
+                    },
+                }
+            ],
+            "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+            "routing": {"rules": []},
+        },
+    )
+
+    status, payload = api.handle_post(
+        "/api/tunnels/save",
+        {"public_domain": "hy.example.test", "name": "HY2 domain", "target_port": "3000"},
+        admin_session(app_modules),
+    )
+
+    assert status == 400
+    assert "reserved for a proxy node" in payload["error"]
+
+
 def test_tunnel_save_rejects_missing_reality_public_key(app_modules, monkeypatch):
     api = app_modules["api"]
     monkeypatch.setattr(
@@ -1084,6 +1225,137 @@ def test_admin_can_export_shared_bridge_agent_config_and_bundle(app_modules, mon
     status, bundle = api.handle_get("/api/tunnels/bridges/macbook-web/windows-bundle", admin_session(app_modules))
     assert status == 200
     assert bundle["filename"] == "macbook-web-windows-bridge.tgz"
+
+
+def test_shared_bridge_save_adds_private_tcp_ssh_by_default(app_modules, monkeypatch):
+    api = app_modules["api"]
+    monkeypatch.setattr(
+        app_modules["api_tunnel_routes"].xray_runtime,
+        "load_config",
+        lambda: {
+            "inbounds": [
+                {
+                    "tag": "vless-reality-in",
+                    "listen": "0.0.0.0",
+                    "port": 8443,
+                    "protocol": "vless",
+                    "settings": {"clients": [], "decryption": "none"},
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "dest": "www.cloudflare.com:443",
+                            "serverNames": ["www.cloudflare.com"],
+                            "publicKey": "server-public-key",
+                            "privateKey": "server-private-key",
+                            "shortIds": ["0123456789abcdef"],
+                        },
+                    },
+                }
+            ],
+            "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+            "routing": {"rules": []},
+        },
+    )
+
+    status, payload = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "public_domain": "web.example.com",
+            "id": "web-example-com",
+            "name": "Web",
+            "target_port": "3000",
+            "bridge_mode": "shared",
+            "bridge_id": "office-mac",
+            "bridge_platform": "macos",
+        },
+        admin_session(app_modules),
+    )
+
+    assert status == 200
+    by_id = {item["id"]: item for item in payload["tunnels"]}
+    assert by_id["office-mac-ssh"]["kind"] == "private_tcp"
+    assert by_id["office-mac-ssh"]["public_domain"] == ""
+    assert by_id["office-mac-ssh"]["target_port"] == 22
+    assert by_id["office-mac-ssh"]["bridge_mode"] == "shared"
+    assert by_id["office-mac-ssh"]["bridge_id"] == "office-mac"
+    assert by_id["office-mac-ssh"]["client_id"] != by_id["web-example-com"]["client_id"]
+
+    status, body = api.handle_get("/api/tunnels/bridges/office-mac/bridge-config", admin_session(app_modules))
+
+    assert status == 200
+    tags = [item["tag"] for item in body["config"]["outbounds"]]
+    assert "tunnel-reverse-out-web-example-com" in tags
+    assert "tunnel-reverse-out-office-mac-ssh" in tags
+    ssh_local = next(item for item in body["config"]["outbounds"] if item["tag"] == "tunnel-local-service-office-mac-ssh")
+    assert ssh_local["settings"]["redirect"] == "127.0.0.1:22"
+
+
+def test_shared_bridge_default_ssh_does_not_overwrite_existing_dedicated_tunnel(app_modules, monkeypatch):
+    api = app_modules["api"]
+    monkeypatch.setattr(
+        app_modules["api_tunnel_routes"].xray_runtime,
+        "load_config",
+        lambda: {
+            "inbounds": [
+                {
+                    "tag": "vless-reality-in",
+                    "port": 8443,
+                    "settings": {"clients": [], "decryption": "none"},
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "serverNames": ["www.cloudflare.com"],
+                            "publicKey": "server-public-key",
+                            "privateKey": "server-private-key",
+                            "shortIds": ["0123456789abcdef"],
+                        },
+                    },
+                }
+            ],
+            "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+            "routing": {"rules": []},
+        },
+    )
+
+    status, body = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "kind": "private_tcp",
+            "id": "office-mac-ssh",
+            "name": "Existing SSH",
+            "target_host": "10.0.0.20",
+            "target_port": "2222",
+            "bridge_mode": "dedicated",
+            "bridge_id": "existing-ssh",
+        },
+        admin_session(app_modules),
+    )
+    assert status == 200, body
+
+    status, payload = api.handle_post(
+        "/api/tunnels/save",
+        {
+            "public_domain": "web.example.com",
+            "id": "web-example-com",
+            "name": "Web",
+            "target_port": "3000",
+            "bridge_mode": "shared",
+            "bridge_id": "office-mac",
+            "bridge_platform": "macos",
+        },
+        admin_session(app_modules),
+    )
+
+    assert status == 200, payload
+    by_id = {item["id"]: item for item in payload["tunnels"]}
+    assert by_id["office-mac-ssh"]["bridge_mode"] == "dedicated"
+    assert by_id["office-mac-ssh"]["target"] == "10.0.0.20:2222"
+    auto_ssh = [item for item in payload["tunnels"] if item["bridge_mode"] == "shared" and item["bridge_id"] == "office-mac" and item["kind"] == "private_tcp"]
+    assert len(auto_ssh) == 1
+    assert auto_ssh[0]["id"] == "office-mac-ssh-1"
+    assert auto_ssh[0]["target_port"] == 22
 
 
 def test_admin_can_export_dedicated_bridge_bundle_for_backend_platforms(app_modules, monkeypatch):

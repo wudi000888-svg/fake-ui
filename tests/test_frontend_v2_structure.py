@@ -190,7 +190,9 @@ def test_frontend_exposes_tunnel_management_screen():
     assert 'if (state.route === "tunnels") return renderAdminTunnels(data);' in routes
     assert "内网穿透" in tunnels
     assert 'data-form="tunnel-save"' in tunnels
-    assert 'data-action="tunnel-export"' in tunnels
+    assert 'data-action="tunnel-export"' not in tunnels
+    assert 'data-action="tunnel-agent-config-export"' in tunnels
+    assert 'data-action="tunnel-shared-agent-config-export"' in tunnels
     assert 'data-action="tunnel-agent-bundle-export"' in tunnels
     assert 'data-platform="${esc(platform)}"' in tunnels
     assert 'data-action="tunnel-shared-agent-bundle-export"' in tunnels
@@ -206,15 +208,23 @@ def test_frontend_exposes_tunnel_management_screen():
     assert 'value="windows"' in tunnels
     assert 'value="linux"' in tunnels
     assert 'name="public_domain"' in tunnels
+    assert 'list="tunnel-domain-options"' in tunnels
+    assert '<datalist id="tunnel-domain-options">' in tunnels
+    assert 'data-domain-options' in tunnels
+    assert "无需域名" in tunnels
     assert 'post("/api/tunnels/save"' in handlers
     assert "/api/tunnels/${encodeURIComponent(id)}/bridge-config" in handlers
-    assert "/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-bundle" in handlers
+    assert 'tunnel-agent-config-export' in handlers
+    assert 'tunnel-shared-agent-config-export' in handlers
+    assert "/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-bundle" not in handlers
     assert "/api/tunnels/${encodeURIComponent(id)}/${encodeURIComponent(platform)}-agent-bundle" in handlers
-    assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-bundle" in handlers
+    assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-bundle" not in handlers
     assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/${encodeURIComponent(platform)}-agent-bundle" in handlers
+    assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/bridge-config" in handlers
     assert 'api("/api/tunnels/portal-config")' in handlers
     assert 'post("/api/tunnels/apply"' in handlers
     assert "downloadText" in handlers
+    assert "state.data.domain_options = out.domain_options" in handlers
     assert 'import { api, download, downloadText, post } from "../api.js?v=3.0.1";' in user_node_actions
 
 
@@ -256,6 +266,8 @@ def test_tunnel_screen_guides_customers_and_groups_shared_agents_once():
     assert "visibleDisabledTunnels" in tunnels
     assert 'data-action="tunnel-agent-bundle-export"' in tunnels
     assert 'data-action="tunnel-shared-agent-bundle-export"' in tunnels
+    assert 'data-action="tunnel-agent-config-export"' in tunnels
+    assert 'data-action="tunnel-shared-agent-config-export"' in tunnels
     assert 'data-action="tunnel-shared-bundle-export"' not in tunnels
     assert 'data-action="tunnel-bundle-export"' not in tunnels
 

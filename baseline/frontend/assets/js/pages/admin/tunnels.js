@@ -35,6 +35,37 @@ function serviceCountLabel(count) {
 }
 
 
+function domainOptionsMarkup(domainOptions = {}) {
+  const available = domainOptions.available || [];
+  return available.map((item) => `<option value="${esc(item.domain || "")}"></option>`).join("");
+}
+
+
+function domainStatusCard(domainOptions = {}) {
+  const available = domainOptions.available || [];
+  const unavailable = domainOptions.unavailable || [];
+  const hidden = unavailable.slice(0, 5).map((item) => `${item.domain}：${domainReasonLabel(item.reason)}`).join("；");
+  return `
+    <div class="tunnel-domain-status" data-domain-options>
+      <strong>可用域名：${available.length}</strong>
+      <span>${available.length ? "只显示已解析到本服务器且未被面板/节点占用的域名。" : "先把子域名 A/AAAA 解析到本 VPS，再刷新页面。"}</span>
+      ${hidden ? `<small>已隐藏：${esc(hidden)}</small>` : ""}
+    </div>
+  `;
+}
+
+
+function domainReasonLabel(reason) {
+  return {
+    reserved_panel_domain: "面板域名",
+    reserved_node_domain: "普通节点域名",
+    already_used_by_tunnel: "已被穿透使用",
+    not_resolved_to_server: "未解析到本服务器",
+    invalid_domain: "域名无效",
+  }[reason] || "不可用";
+}
+
+
 function uniqueSharedAgents(tunnels) {
   const seen = new Set();
   const agents = [];
@@ -63,6 +94,7 @@ function sharedAgentCards(tunnels) {
         </div>
         <p>安装一次后，${esc(serviceNames || "这些服务")} 都会通过这个客户端回连 VPS。新增同一 Bridge ID 的服务时，通常不需要重新安装客户端。</p>
         <div class="admin-actions">
+          <button class="secondary" data-action="tunnel-shared-agent-config-export" data-bridge="${esc(bridgeId)}" type="button">导出总 JSON</button>
           <button class="primary" data-action="tunnel-shared-agent-bundle-export" data-bridge="${esc(bridgeId)}" data-platform="${esc(platform)}" type="button">下载配对安装包</button>
         </div>
       </article>
@@ -82,6 +114,7 @@ function dedicatedAgentCards(tunnels) {
         </div>
         <p>适合 SSH、数据库或需要单独隔离的服务。下载一个配对安装包，在后端机器运行安装脚本即可自动拉取配置。</p>
         <div class="admin-actions">
+          <button class="secondary" data-action="tunnel-agent-config-export" data-tunnel="${esc(tunnel.id)}" type="button">导出总 JSON</button>
           <button class="primary" data-action="tunnel-agent-bundle-export" data-tunnel="${esc(tunnel.id)}" data-platform="${esc(platform)}" type="button">下载配对安装包</button>
         </div>
       </article>
@@ -93,16 +126,16 @@ function dedicatedAgentCards(tunnels) {
 function serviceCard(tunnel) {
   const bridgeMode = tunnel.bridge_mode === "shared" ? `共享 Agent ${tunnel.bridge_id || "default"}` : "独立 Agent";
   const status = tunnel.enabled === false ? "停用" : "在线";
+  const domainLabel = tunnel.kind === "private_tcp" ? "TCP 无需域名" : (tunnel.public_domain || "未配置域名");
   return `
     <article class="admin-card node-admin-card tunnel-service-card">
       <div>
         <strong>${esc(tunnel.display_name || tunnel.name || tunnel.id)}</strong>
         <span>${esc(tunnel.portal || "")} -> ${esc(tunnel.target || "")} · ${status}</span>
       </div>
-      <p>${esc(tunnel.public_domain || tunnel.server_address || "无域名私有服务")} · ${esc(tunnel.server_address || "")}:${esc(tunnel.server_port || "443")} · SNI ${esc(tunnel.reality_sni || "www.cloudflare.com")} · ${esc(bridgeMode)}</p>
+      <p>${esc(domainLabel)} · ${esc(tunnel.server_address || "")}:${esc(tunnel.server_port || "443")} · SNI ${esc(tunnel.reality_sni || "www.cloudflare.com")} · ${esc(bridgeMode)}</p>
       <div class="admin-actions">
         <button class="secondary" data-action="tunnel-edit" data-tunnel="${esc(tunnel.id)}" type="button">编辑</button>
-        <button class="secondary" data-action="tunnel-export" data-tunnel="${esc(tunnel.id)}" type="button">导出 JSON</button>
         <button class="secondary" data-action="tunnel-action" data-tunnel="${esc(tunnel.id)}" data-tunnel-action="${tunnel.enabled === false ? "enable" : "disable"}" type="button">${tunnel.enabled === false ? "启用" : "停用"}</button>
         <button class="secondary quiet-danger" data-action="tunnel-action" data-tunnel="${esc(tunnel.id)}" data-tunnel-action="delete" type="button">删除</button>
       </div>
@@ -160,6 +193,7 @@ function tutorialCard() {
 
 export function renderAdminTunnels(data = {}) {
   const tunnels = data.tunnels || [];
+  const domainOptions = data.domain_options || {};
   const query = data.filters?.tunnels || "";
   const visibleTunnels = tunnels.filter((tunnel) => matchesTunnel(tunnel, query));
   const visibleActiveTunnels = visibleTunnels.filter((tunnel) => tunnel.enabled !== false);
@@ -187,7 +221,8 @@ export function renderAdminTunnels(data = {}) {
         <div><strong>编辑穿透节点</strong><span>填写公网域名、后端系统和本地服务端口，其余参数会自动生成。</span></div>
         <form class="form-grid compact-form" data-form="tunnel-save">
           <label>类型<select name="kind"><option value="public_https">公开 HTTPS 服务</option><option value="private_tcp">私有 TCP 服务</option></select></label>
-          <label>公网域名<input name="public_domain" autocomplete="off" placeholder="app.example.com"></label>
+          <label>公网域名<input name="public_domain" list="tunnel-domain-options" autocomplete="off" placeholder="app.example.com"><datalist id="tunnel-domain-options">${domainOptionsMarkup(domainOptions)}</datalist></label>
+          <p class="form-note">私有 TCP/SSH 无需域名；公开 HTTPS 可选择已识别域名，也可输入新域名，保存时会校验是否解析到本 VPS 且未被面板或普通节点占用。</p>
           <label>名称<input name="name" autocomplete="off" placeholder="我的本地服务"></label>
           <label>本地地址<input name="target_host" value="127.0.0.1" required></label>
           <label>本地端口<input name="target_port" inputmode="numeric" value="3000" required></label>
@@ -203,6 +238,7 @@ export function renderAdminTunnels(data = {}) {
             <button class="secondary" data-action="tunnel-form-close" type="button">收起</button>
           </div>
         </form>
+        ${domainStatusCard(domainOptions)}
       </article>
       <div class="toolbar"><input data-filter="tunnels" value="${esc(query)}" placeholder="搜索穿透节点、入口或本地服务"><button data-action="tunnels-filter" type="button">筛选</button></div>
       <section class="tunnel-section stack">

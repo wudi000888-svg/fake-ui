@@ -835,6 +835,28 @@ label {
   align-content: start;
 }
 
+.tunnel-domain-status {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.tunnel-domain-status span,
+.tunnel-domain-status small,
+.form-note {
+  color: var(--muted);
+}
+
+.form-note {
+  align-self: end;
+  margin: 0;
+  font-size: 12px;
+}
+
 .tunnel-service-card {
   border-left: 3px solid var(--accent);
 }

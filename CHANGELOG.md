@@ -8,6 +8,8 @@
 | 本地客户端 | `bootstrap-agent.py` 会写入 `xray-bridge.json`、`bridge-dashboard.json` 和 `agent-state.json`，成功后清空 `agent-profile.json` 中的 token |
 | 本地控制台 | Bridge dashboard 升级为 fake-ui 风格本地应用，保留 `127.0.0.1:19090` local-only 边界，并展示 runtime、服务、setup、日志和状态 API |
 | 本地导入 | 导入 `xray-bridge.json` 后自动刷新 dashboard 服务 metadata，保留公网域名展示，并避免误把 Xray 配置导入为 dashboard/profile |
+| 域名与导出 | 内网穿透新增域名资格自动识别，候选/已有域名中只提示已解析到本 VPS 且未被面板/普通节点占用的域名；服务级 JSON 导出收敛为后端客户端“导出总 JSON” |
+| TCP/SSH | 私有 TCP 标注无需域名，shared bridge 默认补同 Bridge ID 的 SSH 映射，避免客户另行手动创建救援入口 |
 | TUN 共存 | 手动重新导入配置时保留本机 reverse address 和 `sockopt` 覆盖项，可配合 Shadowrocket/Clash TUN 下的 VPS IP 直连网卡设置 |
 | 安全 | 配对 token 只 hash 存储；dashboard 渲染日志和配置预览时脱敏 UUID、Reality key、short ID 和 pairing token |
 | 兼容 | 原有静态安装包、JSON 导出和共享 Agent 流程保留；面板按钮区分配对 Agent 和手动静态包 |

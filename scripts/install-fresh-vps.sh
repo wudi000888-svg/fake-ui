@@ -396,6 +396,7 @@ DEFAULT_VLESS_ADDRESS=$VLESS_DOMAIN
 DEFAULT_VLESS_NAME=VLESS_Reality_$VLESS_DOMAIN
 DEFAULT_HY2_NAME=HY2_$HY2_DOMAIN
 HY2_MASQUERADE_URL=https://$PANEL_DOMAIN
+TUNNEL_SERVER_IPS=$PUBLIC_IP
 QR_CMD=qrencode
 HY2_PORT=$HY2_PORT
 REALITY_SNI=$REALITY_SNI
@@ -455,6 +456,7 @@ write_runtime_json() {
   DEFAULT_VLESS_NAME="VLESS_Reality_$VLESS_DOMAIN" \
   DEFAULT_HY2_NAME="HY2_$HY2_DOMAIN" \
   HY2_MASQUERADE_URL="https://$PANEL_DOMAIN" \
+  TUNNEL_SERVER_IPS="$PUBLIC_IP" \
   ADMIN_PASS="$ADMIN_PASS" \
   SESSION_SECRET="$SESSION_SECRET" \
   FAKE_UI_DB="$APP_DIR/data/panel/fake-ui.db" \
@@ -1061,6 +1063,9 @@ load_existing_env
 
 PUBLIC_IP="$(curl -4sS --connect-timeout 8 https://api.ipify.org || true)"
 echo "检测到当前 VPS 公网 IP: ${PUBLIC_IP:-未知}"
+if [[ -z "$PUBLIC_IP" ]]; then
+  echo "无法自动检测公网 IP；安装后请在 .env 设置 TUNNEL_SERVER_IPS=你的VPS IP，否则内网穿透域名保存校验会降级。"
+fi
 echo
 echo "请确认 DNS 已解析到本机公网 IP。建议记录："
 echo "  panel.example.com  A  ${PUBLIC_IP:-你的VPS IP}"

@@ -4,9 +4,13 @@ import urllib.parse
 import agent_pairing
 import app_urls
 import audit_log
+import hy2_env_service
+import link_settings
+import node_catalog
 import tunnel_bridge_bundle
 import tunnel_catalog
 import tunnel_config_builder
+import tunnel_domains
 import tunnel_nginx
 import xray_runtime
 from api_common import ok, require_admin
@@ -72,6 +76,113 @@ def fill_tunnel_defaults(data):
     return data
 
 
+def domain_context(extra_domains=(), exclude_tunnel_id=""):
+    tunnels = tunnel_catalog.list_tunnels(include_disabled=True)
+    nodes = node_catalog.list_nodes(include_disabled=True)
+    settings = link_settings.read()
+    default_address = str(settings.get("vless_address") or DEFAULT_VLESS_ADDRESS)
+    panel_domains = tunnel_domains.panel_domains_from_env()
+    node_domains = tunnel_domains.node_reserved_domains(nodes)
+    for domain in tunnel_domains.hy2_reserved_domains(hy2_env_loader=hy2_env_service.read_env):
+        if domain not in node_domains:
+            node_domains.append(domain)
+    if default_address:
+        domain = tunnel_domains.clean_domain(default_address)
+        if domain and domain not in node_domains:
+            node_domains.append(domain)
+    server_ips = tunnel_domains.server_ips_from_env(default_address)
+    candidates = tunnel_domains.candidate_domains(tunnels, extra=extra_domains)
+    return {
+        "tunnels": tunnels,
+        "nodes": nodes,
+        "server_ips": server_ips,
+        "panel_domains": panel_domains,
+        "node_domains": node_domains,
+        "candidates": candidates,
+        "exclude_tunnel_id": exclude_tunnel_id,
+    }
+
+
+def current_domain_options(extra_domains=(), exclude_tunnel_id=""):
+    ctx = domain_context(extra_domains=extra_domains, exclude_tunnel_id=exclude_tunnel_id)
+    return tunnel_domains.domain_options(
+        ctx["candidates"],
+        ctx["server_ips"],
+        panel_domains=ctx["panel_domains"],
+        node_domains=ctx["node_domains"],
+        tunnels=ctx["tunnels"],
+        nodes=ctx["nodes"],
+        exclude_tunnel_id=ctx["exclude_tunnel_id"],
+    )
+
+
+def validate_public_domain_for_save(data):
+    if not (data or {}).get("public_domain"):
+        return
+    kind = str((data or {}).get("kind") or tunnel_catalog.KIND_PUBLIC_HTTPS).strip()
+    if kind == tunnel_catalog.KIND_PRIVATE_TCP:
+        return
+    public_domain = tunnel_catalog.clean_domain((data or {}).get("public_domain", ""))
+    node_id = tunnel_catalog.clean_id(
+        (data or {}).get("id")
+        or (tunnel_catalog.id_from_domain(public_domain) if public_domain else "")
+        or (data or {}).get("name")
+    )
+    ctx = domain_context(extra_domains=[public_domain], exclude_tunnel_id=node_id)
+    if not os.getenv("TUNNEL_SERVER_IPS", "").strip():
+        ctx["server_ips"] = []
+    tunnel_domains.validate_tunnel_domain(
+        public_domain,
+        ctx["server_ips"],
+        panel_domains=ctx["panel_domains"],
+        node_domains=ctx["node_domains"],
+        tunnels=ctx["tunnels"],
+        nodes=ctx["nodes"],
+        exclude_tunnel_id=node_id,
+    )
+
+
+def ensure_default_shared_ssh(tunnel):
+    if not tunnel or tunnel.get("bridge_mode") != tunnel_catalog.BRIDGE_MODE_SHARED:
+        return None
+    bridge_id = tunnel.get("bridge_id") or tunnel.get("id")
+    if not bridge_id:
+        return None
+    for item in tunnel_catalog.list_tunnels(include_disabled=True):
+        if (
+            item.get("bridge_mode") == tunnel_catalog.BRIDGE_MODE_SHARED
+            and item.get("bridge_id") == bridge_id
+            and int(item.get("target_port") or 0) == 22
+            and not item.get("public_domain")
+        ):
+            return item
+    used_ids = {str(item.get("id") or "") for item in tunnel_catalog.list_tunnels(include_disabled=True)}
+    ssh_id = tunnel_catalog.clean_id(f"{bridge_id}-ssh")
+    if ssh_id in used_ids:
+        index = 1
+        while tunnel_catalog.clean_id(f"{bridge_id}-ssh-{index}") in used_ids:
+            index += 1
+        ssh_id = tunnel_catalog.clean_id(f"{bridge_id}-ssh-{index}")
+    data = {
+        "kind": tunnel_catalog.KIND_PRIVATE_TCP,
+        "id": ssh_id,
+        "name": "SSH",
+        "target_host": "127.0.0.1",
+        "target_port": 22,
+        "bridge_mode": tunnel_catalog.BRIDGE_MODE_SHARED,
+        "bridge_id": bridge_id,
+        "bridge_platform": tunnel.get("bridge_platform") or tunnel_catalog.BRIDGE_PLATFORM_MACOS,
+        "server_address": tunnel.get("server_address") or DEFAULT_VLESS_ADDRESS,
+        "server_port": tunnel.get("server_port") or 443,
+        "internal_port": tunnel.get("internal_port") or 8443,
+        "reality_sni": tunnel.get("reality_sni") or tunnel_catalog.DEFAULT_REALITY_SNI,
+        "public_key": tunnel.get("public_key") or "",
+        "short_id": tunnel.get("short_id") or "",
+        "flow": tunnel.get("flow") or tunnel_catalog.DEFAULT_FLOW,
+    }
+    return tunnel_catalog.upsert_tunnel(fill_tunnel_defaults(data))
+
+
 def shared_bridge_tunnels(bridge_id):
     bridge_id = tunnel_catalog.clean_id(bridge_id)
     tunnels = [
@@ -103,7 +214,7 @@ def handle_tunnel_get(path, session):
         return err
 
     if clean == "/api/tunnels":
-        return ok(tunnels=tunnel_catalog.list_public_tunnels())
+        return ok(tunnels=tunnel_catalog.list_public_tunnels(), domain_options=current_domain_options())
 
     if clean == "/api/tunnels/portal-config":
         cfg = tunnel_config_builder.build_portal_config(
@@ -209,11 +320,13 @@ def handle_tunnel_post(clean, data, session):
 
     if clean == "/api/tunnels/save":
         try:
+            validate_public_domain_for_save(data or {})
             tunnel = tunnel_catalog.upsert_tunnel(fill_tunnel_defaults(data or {}))
+            ensure_default_shared_ssh(tunnel)
         except RuntimeError as exc:
             return api_error(str(exc), 400)
         audit_log.write(session.get("u", "admin"), "tunnel.save", tunnel.get("id", ""), tunnel_catalog.public_tunnel(tunnel))
-        return ok(tunnel=tunnel_catalog.public_tunnel(tunnel), tunnels=tunnel_catalog.list_public_tunnels())
+        return ok(tunnel=tunnel_catalog.public_tunnel(tunnel), tunnels=tunnel_catalog.list_public_tunnels(), domain_options=current_domain_options())
 
     if clean == "/api/tunnels/action":
         action = (data or {}).get("action", "")
@@ -225,7 +338,7 @@ def handle_tunnel_post(clean, data, session):
         else:
             raise RuntimeError("unknown tunnel action")
         audit_log.write(session.get("u", "admin"), "tunnel." + action, node_id)
-        return ok(tunnel=tunnel_catalog.public_tunnel(tunnel), tunnels=tunnel_catalog.list_public_tunnels())
+        return ok(tunnel=tunnel_catalog.public_tunnel(tunnel), tunnels=tunnel_catalog.list_public_tunnels(), domain_options=current_domain_options())
 
     if clean == "/api/tunnels/apply":
         tunnels = tunnel_catalog.list_tunnels(include_disabled=False)
@@ -236,6 +349,6 @@ def handle_tunnel_post(clean, data, session):
         backup = xray_runtime.write_and_restart_xray(cfg)
         nginx = tunnel_nginx.apply_native_nginx(tunnels)
         audit_log.write(session.get("u", "admin"), "tunnel.apply", "xray-nginx", {"backup": str(backup), "nginx": nginx})
-        return ok(message="穿透入口已应用到 Xray / Nginx", backup=str(backup), nginx=nginx, tunnels=tunnel_catalog.list_public_tunnels())
+        return ok(message="穿透入口已应用到 Xray / Nginx", backup=str(backup), nginx=nginx, tunnels=tunnel_catalog.list_public_tunnels(), domain_options=current_domain_options())
 
     return api_error("not found", 404)
