@@ -56,23 +56,39 @@ def plist_text(tunnel):
 
 def shell_bootstrap_snippet():
     return """SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "$SCRIPT_DIR/agent-profile.json" ] && [ -f "$SCRIPT_DIR/bootstrap-agent.py" ]; then
-  PYTHON="${PYTHON:-}"
-  if [ -z "$PYTHON" ]; then
-    if command -v python3 >/dev/null 2>&1; then
-      PYTHON=python3
-    elif command -v python >/dev/null 2>&1; then
-      PYTHON=python
-    else
-      echo "未找到 Python。请先安装 Python 3。" >&2
-      exit 1
-    fi
+PYTHON="${PYTHON:-}"
+if [ -z "$PYTHON" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON=python3
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON=python
+  else
+    echo "未找到 Python。请先安装 Python 3。" >&2
+    exit 1
   fi
+fi
+if [ -f "$SCRIPT_DIR/agent-profile.json" ] && [ -f "$SCRIPT_DIR/bootstrap-agent.py" ]; then
   "$PYTHON" "$SCRIPT_DIR/bootstrap-agent.py"
 fi
 if [ ! -f "$SCRIPT_DIR/xray-bridge.json" ]; then
   echo "未找到 xray-bridge.json。请先运行 bootstrap-agent.py 或放入静态配置。" >&2
   exit 1
+fi
+if [ -f "$SCRIPT_DIR/bridge-dashboard.py" ]; then
+  "$PYTHON" - <<'PY'
+import importlib.util
+from pathlib import Path
+base = Path.cwd()
+spec = importlib.util.spec_from_file_location("bridge_dashboard", base / "bridge-dashboard.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+metadata = module.load_metadata(base)
+try:
+    result = module.apply_network_bypass(metadata, base)
+    print(result.get("message", "已应用代理兼容"))
+except Exception as exc:
+    print(f"代理兼容保持默认：{exc}")
+PY
 fi
 """
 
@@ -80,18 +96,25 @@ fi
 def powershell_bootstrap_snippet():
     return """$Profile = Join-Path $PSScriptRoot "agent-profile.json"
 $Bootstrap = Join-Path $PSScriptRoot "bootstrap-agent.py"
+$Python = Get-Command python.exe -ErrorAction SilentlyContinue
+if (-not $Python) {
+  $Python = Get-Command py.exe -ErrorAction SilentlyContinue
+}
+if (-not $Python) {
+  throw "未找到 Python。请先安装 Python 3。"
+}
 if ((Test-Path $Profile) -and (Test-Path $Bootstrap)) {
-  $Python = Get-Command python.exe -ErrorAction SilentlyContinue
-  if (-not $Python) {
-    $Python = Get-Command py.exe -ErrorAction SilentlyContinue
-  }
-  if (-not $Python) {
-    throw "未找到 Python。请先安装 Python 3。"
-  }
   & $Python.Source $Bootstrap
 }
 if (-not (Test-Path (Join-Path $PSScriptRoot "xray-bridge.json"))) {
   throw "未找到 xray-bridge.json。请先运行 bootstrap-agent.py 或放入静态配置。"
+}
+if (Test-Path (Join-Path $PSScriptRoot "bridge-dashboard.py")) {
+  try {
+    & $Python.Source -c "import importlib.util; from pathlib import Path; base=Path.cwd(); spec=importlib.util.spec_from_file_location('bridge_dashboard', base / 'bridge-dashboard.py'); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); print(m.apply_network_bypass(m.load_metadata(base), base).get('message', '已应用代理兼容'))"
+  } catch {
+    Write-Host "代理兼容保持默认：$($_.Exception.Message)"
+  }
 }
 """
 
@@ -404,6 +427,7 @@ import os
 import re
 import socket
 import subprocess
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -458,6 +482,128 @@ def command_probe(command, timeout=2.0):
     return {"ok": proc.returncode == 0, "message": text[:1200] if text else f"exit {proc.returncode}"}
 
 
+def platform_name(metadata):
+    value = str((metadata or {}).get("platform") or "").strip().lower()
+    if value in {"macos", "linux", "windows"}:
+        return value
+    if sys.platform == "darwin":
+        return "macos"
+    if sys.platform.startswith("linux"):
+        return "linux"
+    if sys.platform.startswith("win"):
+        return "windows"
+    return value or sys.platform
+
+
+def xray_config_path(base_dir, metadata):
+    rel_path = (metadata.get("xray_config") or {}).get("path") or "xray-bridge.json"
+    return base_dir / rel_path
+
+
+def route_probe(platform, address):
+    address = str(address or "").strip()
+    if not address:
+        return {"ok": False, "message": "missing address"}
+    if platform == "macos":
+        return command_probe(["route", "-n", "get", address])
+    if platform == "linux":
+        return command_probe(["ip", "route", "get", address])
+    if platform == "windows":
+        command = (
+            "$route = Find-NetRoute -RemoteIPAddress '" + address.replace("'", "''") + "' | "
+            "Sort-Object -Property RouteMetric | Select-Object -First 1; "
+            "if ($route) { $route.InterfaceAlias }"
+        )
+        return command_probe(["powershell", "-NoProfile", "-Command", command])
+    return {"ok": False, "message": f"unsupported platform: {platform}"}
+
+
+def dns_probe(platform):
+    if platform == "macos":
+        return command_probe(["scutil", "--dns"])
+    if platform == "linux":
+        probe = command_probe(["resolvectl", "dns"])
+        if probe.get("ok"):
+            return probe
+        try:
+            return {"ok": True, "message": Path("/etc/resolv.conf").read_text(encoding="utf-8")[:1200]}
+        except Exception as exc:
+            return {"ok": False, "message": str(exc)}
+    if platform == "windows":
+        return command_probe(["powershell", "-NoProfile", "-Command", "Get-DnsClientServerAddress | Format-Table -AutoSize"])
+    return {"ok": False, "message": f"unsupported platform: {platform}"}
+
+
+def parse_route_interface(message):
+    text = str(message or "")
+    for pattern in (r"\binterface:\s*([^\s]+)", r"\bdev\s+([^\s]+)"):
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) == 1 and len(lines[0]) <= 80:
+        return lines[0]
+    return ""
+
+
+def is_tunnel_interface(name):
+    value = str(name or "").strip().lower()
+    return value.startswith(("utun", "tun", "tap", "wg", "ppp")) or any(
+        token in value for token in ("wintun", "clash", "shadowrocket", "tailscale", "zerotier")
+    )
+
+
+def fake_dns_detected(message):
+    text = str(message or "").lower()
+    return "198.18." in text or "198.19." in text or "utun" in text or "fake-ip" in text
+
+
+def physical_interfaces_from_ifconfig():
+    probe = command_probe(["ifconfig"], timeout=2.0)
+    if not probe.get("ok"):
+        return []
+    candidates = []
+    blocks = re.split(r"\n(?=[a-zA-Z0-9_.-]+:\s)", probe.get("message") or "")
+    for block in blocks:
+        first = block.split(":", 1)[0].strip()
+        if not first or is_tunnel_interface(first) or first.startswith(("lo", "awdl", "llw", "bridge", "gif", "stf", "anpi")):
+            continue
+        if "status: active" in block and re.search(r"\binet\s+\d+\.\d+\.\d+\.\d+", block):
+            candidates.append(first)
+    return sorted(candidates, key=lambda item: (0 if item == "en0" else 1, item))
+
+
+def physical_interfaces_from_linux():
+    probe = command_probe(["ip", "-o", "-4", "addr", "show", "scope", "global"], timeout=2.0)
+    if not probe.get("ok"):
+        return []
+    interfaces = []
+    for line in (probe.get("message") or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            name = parts[1].rstrip(":")
+            if not is_tunnel_interface(name) and not name.startswith(("lo", "docker", "br-", "veth")):
+                interfaces.append(name)
+    return sorted(set(interfaces))
+
+
+def detect_recommended_interface(platform):
+    override = str(os.getenv("FAKE_UI_BRIDGE_OUTBOUND_INTERFACE") or "").strip()
+    if override:
+        return override
+    default_route = route_probe(platform, "1.1.1.1")
+    routed = parse_route_interface(default_route.get("message"))
+    if routed and not is_tunnel_interface(routed):
+        return routed
+    if platform == "macos":
+        candidates = physical_interfaces_from_ifconfig()
+        return candidates[0] if candidates else ""
+    if platform == "linux":
+        candidates = physical_interfaces_from_linux()
+        return candidates[0] if candidates else ""
+    return ""
+
+
 def runtime_status(metadata):
     runtime = metadata.get("runtime") or {}
     kind = runtime.get("kind")
@@ -509,6 +655,89 @@ def load_json_file(path):
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def reverse_outbounds(config):
+    return [
+        item
+        for item in (config or {}).get("outbounds") or []
+        if item.get("protocol") == "vless" and str(item.get("tag") or "").startswith("tunnel-reverse")
+    ]
+
+
+def reverse_server_addresses(config):
+    values = []
+    for outbound in reverse_outbounds(config):
+        settings = outbound.get("settings") or {}
+        address = str(settings.get("address") or "").strip()
+        if address and address not in values:
+            values.append(address)
+    return values
+
+
+def configured_bypass_interfaces(config):
+    values = []
+    for outbound in reverse_outbounds(config):
+        sockopt = (outbound.get("streamSettings") or {}).get("sockopt") or {}
+        interface = str(sockopt.get("interface") or "").strip()
+        if interface and interface not in values:
+            values.append(interface)
+    return values
+
+
+def apply_outbound_interface(config, interface):
+    if not isinstance(config, dict):
+        return config, 0
+    interface = str(interface or "").strip()
+    if not interface:
+        return config, 0
+    changed = 0
+    for outbound in reverse_outbounds(config):
+        stream = outbound.setdefault("streamSettings", {})
+        sockopt = stream.setdefault("sockopt", {})
+        if sockopt.get("interface") != interface:
+            sockopt["interface"] = interface
+            changed += 1
+    return config, changed
+
+
+def collect_network_status(metadata, base_dir):
+    platform = platform_name(metadata)
+    config = load_json_file(xray_config_path(base_dir, metadata)) or {}
+    addresses = reverse_server_addresses(config)
+    address = addresses[0] if addresses else ""
+    dns = dns_probe(platform)
+    vps_route = route_probe(platform, address) if address else {"ok": False, "message": "missing reverse server address"}
+    vps_interface = parse_route_interface(vps_route.get("message"))
+    bypass_interfaces = configured_bypass_interfaces(config)
+    recommended = detect_recommended_interface(platform) or (bypass_interfaces[0] if bypass_interfaces else "")
+    tun_detected = fake_dns_detected(dns.get("message")) or is_tunnel_interface(vps_interface)
+    configured = bool(bypass_interfaces and (not recommended or recommended in bypass_interfaces))
+    return {
+        "platform": platform,
+        "reverse_address": address,
+        "dns": {"ok": dns.get("ok"), "fake_ip": fake_dns_detected(dns.get("message")), "message": dns.get("message", "")[:1200]},
+        "vps_route": {"ok": vps_route.get("ok"), "interface": vps_interface, "message": vps_route.get("message", "")[:1200]},
+        "tun_detected": bool(tun_detected),
+        "recommended_interface": recommended,
+        "bridge_bypass": {"configured": configured, "interfaces": bypass_interfaces},
+    }
+
+
+def apply_network_bypass(metadata, base_dir, interface=""):
+    platform = platform_name(metadata)
+    target_interface = str(interface or "").strip() or detect_recommended_interface(platform)
+    if not target_interface:
+        raise RuntimeError("未找到可用于直连 VPS 的物理网卡")
+    path = xray_config_path(base_dir, metadata)
+    config = load_json_file(path)
+    if not isinstance(config, dict):
+        raise RuntimeError("xray-bridge.json 格式不正确")
+    updated, changed = apply_outbound_interface(config, target_interface)
+    if not reverse_outbounds(updated):
+        raise RuntimeError("未找到 tunnel reverse 出站")
+    write_json_atomic(path, updated)
+    return {"ok": True, "interface": target_interface, "changed": changed, "message": f"已设置 Bridge 出站直连网卡：{target_interface}"}
 
 
 def parse_host_port(value):
@@ -669,14 +898,6 @@ def validate_agent_profile(content):
         raise RuntimeError("agent-profile.json 缺少配对信息")
 
 
-def reverse_outbounds(config):
-    return [
-        item
-        for item in (config or {}).get("outbounds") or []
-        if item.get("protocol") == "vless" and str(item.get("tag") or "").startswith("tunnel-reverse")
-    ]
-
-
 def preserve_local_network_overrides(imported_config, existing_config):
     if not isinstance(imported_config, dict) or not isinstance(existing_config, dict):
         return imported_config
@@ -816,6 +1037,7 @@ def collect_status(metadata, base_dir):
         "metadata": metadata,
         "runtime": runtime_status(metadata),
         "xray_config": xray_config_status(base_dir, metadata),
+        "network": collect_network_status(metadata, base_dir),
         "services": services,
         "logs": collect_logs(metadata, base_dir),
     }
@@ -871,6 +1093,7 @@ def render_dashboard(status):
     metadata = status.get("metadata") or {}
     runtime = status.get("runtime") or {}
     xray_config = status.get("xray_config") or {}
+    network = status.get("network") or {}
     services = status.get("services") or []
     logs = status.get("logs") or []
     dashboard = metadata.get("dashboard") or {}
@@ -908,6 +1131,13 @@ def render_dashboard(status):
         config_preview = xray_config.get("message") or "暂无配置预览"
     runtime_text = runtime_label(runtime)
     config_text = config_label(xray_config)
+    bypass = network.get("bridge_bypass") or {}
+    tun_text = "检测到本地代理/TUN" if network.get("tun_detected") else "未检测到 TUN 接管"
+    bypass_text = "Bridge 已直连" if bypass.get("configured") else "Bridge 未设置直连"
+    route_interface = (network.get("vps_route") or {}).get("interface") or "-"
+    recommended_interface = network.get("recommended_interface") or "-"
+    reverse_address = network.get("reverse_address") or "-"
+    bypass_interfaces = ", ".join(bypass.get("interfaces") or []) or "-"
     html_text = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -945,7 +1175,9 @@ def render_dashboard(status):
     .btn {{ appearance: none; border: 1px solid var(--primary); background: var(--primary); color: white; border-radius: var(--radius); min-height: 36px; padding: 0 12px; font-weight: 800; cursor: pointer; }}
     .btn.secondary {{ background: var(--surface); color: var(--primary); }}
     input[type=file] {{ max-width: 100%; }}
-    .notice {{ margin-top: 10px; min-height: 22px; font-weight: 700; color: var(--muted); }}
+	    .notice {{ margin-top: 10px; min-height: 22px; font-weight: 700; color: var(--muted); }}
+	    .notice.warn {{ color: var(--warning); }}
+	    .notice.ok {{ color: var(--success); }}
     table {{ width: 100%; border-collapse: collapse; }}
     th, td {{ text-align: left; padding: 11px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }}
     th {{ color: var(--muted); font-size: 12px; }}
@@ -984,19 +1216,32 @@ def render_dashboard(status):
           <div class="panel control-panel">
             <h2>本机控制</h2>
             <div class="button-row">
-              <button class="btn" type="button" onclick="restartBridge()">重启 Bridge</button>
-              <button class="btn secondary" type="button" onclick="location.reload()">刷新状态</button>
-            </div>
-            <div id="restart-result" class="notice">导入或更新配置后，点击重启 Bridge 让新配置生效。</div>
-          </div>
-          <div class="metric-grid">
-            <div class="metric"><span>运行状态</span><strong>{esc(runtime_text)}</strong></div>
-            <div class="metric"><span>Xray 配置</span><strong>{esc(config_text)}</strong></div>
-            <div class="metric"><span>本地服务</span><strong>{service_count}</strong></div>
-            <div class="metric"><span>公网地址</span><strong>{public_count}</strong></div>
-          </div>
-        </section>
-        <section id="services-section" class="services-section panel">
+	              <button class="btn" type="button" onclick="restartBridge()">重启 Bridge</button>
+	              <button class="btn secondary" type="button" onclick="applyNetworkBypass()">应用代理兼容</button>
+	              <button class="btn secondary" type="button" onclick="location.reload()">刷新状态</button>
+	            </div>
+	            <div id="restart-result" class="notice">导入或更新配置后，点击重启 Bridge 让新配置生效。</div>
+	            <div id="network-result" class="notice">Shadowrocket/Clash TUN 开启时，可先应用代理兼容再重启 Bridge。</div>
+	          </div>
+	          <div class="metric-grid">
+	            <div class="metric"><span>运行状态</span><strong>{esc(runtime_text)}</strong></div>
+	            <div class="metric"><span>Xray 配置</span><strong>{esc(config_text)}</strong></div>
+	            <div class="metric"><span>本地服务</span><strong>{service_count}</strong></div>
+	            <div class="metric"><span>代理兼容</span><strong>{esc(bypass_text)}</strong></div>
+	          </div>
+	        </section>
+	        <section id="network-section" class="network-section panel">
+	          <h2>本地代理兼容</h2>
+	          <div class="setup-grid">
+	            <div class="setup-item"><span class="section-kicker">检测结果</span><p>{badge_html(not network.get('tun_detected') or bypass.get('configured'), tun_text)}</p></div>
+	            <div class="setup-item"><span class="section-kicker">VPS 地址</span><p class="mono-line"><code>{esc(reverse_address)}</code></p></div>
+	            <div class="setup-item"><span class="section-kicker">当前路由网卡</span><p><code>{esc(route_interface)}</code></p></div>
+	            <div class="setup-item"><span class="section-kicker">建议直连网卡</span><p><code>{esc(recommended_interface)}</code></p></div>
+	            <div class="setup-item"><span class="section-kicker">Bridge 已配置网卡</span><p><code>{esc(bypass_interfaces)}</code></p></div>
+	            <div class="setup-item"><span class="section-kicker">说明</span><p class="hint">这里仅调整 Bridge 到 VPS 的出站链路，不会修改 Shadowrocket 或系统代理。</p></div>
+	          </div>
+	        </section>
+	        <section id="services-section" class="services-section panel">
           <h2>服务状态</h2>
           <table class="service-table">
             <thead><tr><th>服务</th><th>类型</th><th>本机地址</th><th>公网地址</th><th>探测</th></tr></thead>
@@ -1044,8 +1289,9 @@ def render_dashboard(status):
             <div class="guide-item">
               <h3>常见问题</h3>
               <ul>
-                <li>公网 502：先看本地服务是否可达。</li>
-                <li>配置无效：重新从面板导出或重新配对。</li>
+	                <li>公网 502：先看本地服务是否可达。</li>
+	                <li>开着 Shadowrocket/Clash 后测试异常：在“本地代理兼容”里应用直连网卡，再重启 Bridge。</li>
+	                <li>配置无效：重新从面板导出或重新配对。</li>
                 <li>服务不可达：确认本机应用监听了对应端口。</li>
                 <li>本页打不开：确认只访问 <code>127.0.0.1:19090</code>。</li>
               </ul>
@@ -1071,8 +1317,9 @@ def render_dashboard(status):
           <h2>API</h2>
           <p><code>GET /status.json</code></p>
           <p><code>POST /api/import</code></p>
-          <p><code>POST /api/restart</code></p>
-        </section>
+	          <p><code>POST /api/restart</code></p>
+	          <p><code>POST /api/network/fix</code></p>
+	        </section>
       </main>
     </div>
   </div>
@@ -1096,7 +1343,7 @@ def render_dashboard(status):
         result.textContent = `导入失败：${{error.message}}`;
       }}
     }}
-    async function restartBridge() {{
+	    async function restartBridge() {{
       const result = document.getElementById('restart-result');
       result.textContent = '正在重启 Bridge...';
       try {{
@@ -1110,10 +1357,27 @@ def render_dashboard(status):
         result.textContent = payload.message || '重启命令已执行，正在刷新状态...';
         window.setTimeout(() => location.reload(), 1200);
       }} catch (error) {{
-        result.textContent = `重启失败：${{error.message}}`;
-      }}
-    }}
-  </script>
+	        result.textContent = `重启失败：${{error.message}}`;
+	      }}
+	    }}
+	    async function applyNetworkBypass() {{
+	      const result = document.getElementById('network-result');
+	      result.textContent = '正在应用代理兼容...';
+	      try {{
+	        const response = await fetch('/api/network/fix', {{
+	          method: 'POST',
+	          headers: {{ 'Content-Type': 'application/json' }},
+	          body: JSON.stringify({{}})
+	        }});
+	        const payload = await response.json();
+	        if (!response.ok || !payload.ok) throw new Error(payload.error || '应用失败');
+	        result.textContent = payload.message || '已应用代理兼容，请重启 Bridge。';
+	        window.setTimeout(() => location.reload(), 1200);
+	      }} catch (error) {{
+	        result.textContent = `应用失败：${{error.message}}`;
+	      }}
+	    }}
+	  </script>
 </body>
 </html>"""
     return html_text.encode("utf-8")
@@ -1160,6 +1424,19 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/restart":
             try:
                 result = restart_runtime(type(self).metadata, self.base_dir)
+                self.send_json(200, result)
+            except Exception as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            return
+        if path == "/api/network/fix":
+            try:
+                length = int(self.headers.get("Content-Length") or "0")
+                payload = {}
+                if length > 0:
+                    if length > 1024 * 1024:
+                        raise RuntimeError("请求体过大")
+                    payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                result = apply_network_bypass(type(self).metadata, self.base_dir, (payload or {}).get("interface", ""))
                 self.send_json(200, result)
             except Exception as exc:
                 self.send_json(400, {"ok": False, "error": str(exc)})
@@ -1271,6 +1548,10 @@ def add_dashboard_assets(tar, root, bundle_kind, identifier, platform, tunnels):
 def bootstrap_agent_script():
     return r'''#!/usr/bin/env python3
 import json
+import os
+import platform
+import re
+import subprocess
 import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -1291,6 +1572,92 @@ def write_json(path, data):
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def command_output(command, timeout=2.0):
+    try:
+        proc = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
+    except Exception:
+        return ""
+    return proc.stdout or ""
+
+
+def is_tunnel_interface(name):
+    value = str(name or "").strip().lower()
+    return value.startswith(("utun", "tun", "tap", "wg", "ppp")) or any(
+        token in value for token in ("wintun", "clash", "shadowrocket", "tailscale", "zerotier")
+    )
+
+
+def parse_route_interface(text):
+    for pattern in (r"\binterface:\s*([^\s]+)", r"\bdev\s+([^\s]+)"):
+        match = re.search(pattern, text or "")
+        if match:
+            return match.group(1)
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    if len(lines) == 1 and len(lines[0]) <= 80:
+        return lines[0]
+    return ""
+
+
+def current_platform():
+    system = platform.system().lower()
+    if system == "darwin":
+        return "macos"
+    if system == "linux":
+        return "linux"
+    if system.startswith("win"):
+        return "windows"
+    return system
+
+
+def detect_outbound_interface():
+    override = str(os.getenv("FAKE_UI_BRIDGE_OUTBOUND_INTERFACE") or "").strip()
+    if override:
+        return override
+    current = current_platform()
+    if current == "macos":
+        routed = parse_route_interface(command_output(["route", "-n", "get", "1.1.1.1"]))
+        if routed and not is_tunnel_interface(routed):
+            return routed
+        text = command_output(["ifconfig"])
+        candidates = []
+        for block in re.split(r"\n(?=[a-zA-Z0-9_.-]+:\s)", text):
+            name = block.split(":", 1)[0].strip()
+            if not name or is_tunnel_interface(name) or name.startswith(("lo", "awdl", "llw", "bridge", "gif", "stf", "anpi")):
+                continue
+            if "status: active" in block and re.search(r"\binet\s+\d+\.\d+\.\d+\.\d+", block):
+                candidates.append(name)
+        return (sorted(candidates, key=lambda item: (0 if item == "en0" else 1, item)) or [""])[0]
+    if current == "linux":
+        routed = parse_route_interface(command_output(["ip", "route", "get", "1.1.1.1"]))
+        if routed and not is_tunnel_interface(routed):
+            return routed
+        text = command_output(["ip", "-o", "-4", "addr", "show", "scope", "global"])
+        for line in text.splitlines():
+            parts = line.split()
+            if len(parts) >= 2:
+                name = parts[1].rstrip(":")
+                if not is_tunnel_interface(name) and not name.startswith(("lo", "docker", "br-", "veth")):
+                    return name
+    return ""
+
+
+def reverse_outbounds(config):
+    return [
+        item
+        for item in (config or {}).get("outbounds") or []
+        if item.get("protocol") == "vless" and str(item.get("tag") or "").startswith("tunnel-reverse")
+    ]
+
+
+def apply_local_network_bypass(config):
+    interface = detect_outbound_interface()
+    if not interface or not isinstance(config, dict):
+        return config
+    for outbound in reverse_outbounds(config):
+        outbound.setdefault("streamSettings", {}).setdefault("sockopt", {})["interface"] = interface
+    return config
 
 
 def is_complete():
@@ -1355,7 +1722,7 @@ def main():
     result = request_bootstrap(profile)
     if not result.get("ok"):
         raise SystemExit(f"bootstrap failed: {result.get('error') or 'unknown error'}")
-    write_json(BASE_DIR / "xray-bridge.json", result.get("xray_config") or {})
+    write_json(BASE_DIR / "xray-bridge.json", apply_local_network_bypass(result.get("xray_config") or {}))
     write_json(BASE_DIR / "bridge-dashboard.json", result.get("dashboard_metadata") or {})
     write_json(
         BASE_DIR / "agent-state.json",

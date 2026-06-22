@@ -877,6 +877,73 @@ def test_bootstrap_agent_script_posts_profile_and_writes_local_state(tmp_path):
     subprocess.run([sys.executable, str(script)], cwd=tmp_path, check=True, text=True, capture_output=True)
 
 
+def test_bootstrap_agent_script_applies_local_proxy_bypass_to_downloaded_config(tmp_path, monkeypatch):
+    import tunnel_bridge_bundle
+
+    profile = {
+        "schema": 1,
+        "panel_url": "",
+        "token_id": "pair_script",
+        "pairing_token": "secret-script-token",
+        "bridge_id": "office-api",
+        "bundle_kind": "dedicated",
+        "platform": "macos",
+        "agent_name": "Office API",
+        "dashboard": {"host": "127.0.0.1", "port": 19090},
+        "agent_id": "",
+        "capabilities": [],
+    }
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            return
+
+        def do_POST(self):
+            payload = {
+                "ok": True,
+                "agent": {"agent_id": "agent_script", "capabilities": ["bootstrap"]},
+                "xray_config": {
+                    "outbounds": [
+                        {"tag": "direct", "protocol": "freedom"},
+                        {
+                            "tag": "tunnel-reverse-out",
+                            "protocol": "vless",
+                            "settings": {"address": "43.134.13.43", "port": 443},
+                            "streamSettings": {"network": "tcp", "security": "reality"},
+                        },
+                    ]
+                },
+                "dashboard_metadata": {"bundle_kind": "dedicated", "bridge_id": "office-api", "platform": "macos"},
+                "install": {"service_name": "com.fakeui.bridge.office-api"},
+            }
+            raw = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        profile["panel_url"] = f"http://127.0.0.1:{server.server_port}"
+        (tmp_path / "agent-profile.json").write_text(json.dumps(profile), encoding="utf-8")
+        script = tmp_path / "bootstrap-agent.py"
+        script.write_text(tunnel_bridge_bundle.bootstrap_agent_script(), encoding="utf-8")
+
+        monkeypatch.setenv("FAKE_UI_BRIDGE_OUTBOUND_INTERFACE", "en0")
+        subprocess.run([sys.executable, str(script)], cwd=tmp_path, check=True, text=True, capture_output=True)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    cfg = json.loads((tmp_path / "xray-bridge.json").read_text(encoding="utf-8"))
+    reverse = next(item for item in cfg["outbounds"] if item["tag"] == "tunnel-reverse-out")
+    assert reverse["settings"]["address"] == "43.134.13.43"
+    assert reverse["streamSettings"]["sockopt"] == {"interface": "en0"}
+
+
 def test_bootstrap_agent_script_accepts_complete_local_state_with_stale_token(tmp_path):
     import tunnel_bridge_bundle
 
@@ -1814,3 +1881,66 @@ def test_bridge_dashboard_accepts_manual_client_runtime(tmp_path):
 
     assert payload["runtime"]["ok"] is True
     assert payload["runtime"]["message"] == "manual client mode"
+
+
+def test_bridge_dashboard_reports_proxy_tun_status_and_can_apply_bypass(tmp_path, monkeypatch):
+    import tunnel_bridge_bundle
+
+    script_path = tmp_path / "bridge_dashboard_network.py"
+    script_path.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("bridge_dashboard_network", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    cfg = {
+        "outbounds": [
+            {"tag": "direct", "protocol": "freedom"},
+            {
+                "tag": "tunnel-reverse-out",
+                "protocol": "vless",
+                "settings": {"address": "43.134.13.43", "port": 443},
+                "streamSettings": {"network": "tcp", "security": "reality"},
+            },
+        ]
+    }
+    metadata = {
+        "bundle_kind": "client-template",
+        "bridge_id": "client-template",
+        "platform": "macos",
+        "dashboard": {"host": "127.0.0.1", "port": 19090},
+        "runtime": {"kind": "manual", "name": "fake-ui bridge client", "restart_command": "bash stop-bridge.sh && bash start-bridge.sh"},
+        "logs": [],
+        "xray_config": {"path": "xray-bridge.json"},
+        "services": [],
+    }
+    (tmp_path / "bridge-dashboard.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (tmp_path / "xray-bridge.json").write_text(json.dumps(cfg), encoding="utf-8")
+
+    def fake_command_probe(command, timeout=2.0):
+        joined = " ".join(command)
+        if "scutil --dns" in joined:
+            return {"ok": True, "message": "nameserver[0] : 198.18.0.2\nif_index : 27 (utun6)"}
+        if "route -n get 43.134.13.43" in joined:
+            return {"ok": True, "message": "interface: utun6"}
+        if "route -n get 1.1.1.1" in joined:
+            return {"ok": True, "message": "interface: en0"}
+        return {"ok": False, "message": ""}
+
+    monkeypatch.setattr(module, "command_probe", fake_command_probe)
+
+    status = module.collect_status(metadata, tmp_path)
+    network = status["network"]
+    assert network["tun_detected"] is True
+    assert network["vps_route"]["interface"] == "utun6"
+    assert network["recommended_interface"] == "en0"
+    assert network["bridge_bypass"]["configured"] is False
+
+    result = module.apply_network_bypass(metadata, tmp_path)
+    saved = json.loads((tmp_path / "xray-bridge.json").read_text(encoding="utf-8"))
+    reverse = next(item for item in saved["outbounds"] if item["tag"] == "tunnel-reverse-out")
+    assert result["ok"] is True
+    assert reverse["streamSettings"]["sockopt"] == {"interface": "en0"}
+
+    status_after = module.collect_status(metadata, tmp_path)
+    assert status_after["network"]["recommended_interface"] == "en0"
+    assert status_after["network"]["bridge_bypass"] == {"configured": True, "interfaces": ["en0"]}

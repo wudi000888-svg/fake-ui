@@ -248,7 +248,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-local.ps1
 | 配对 Agent 包 | 推荐给普通客户使用。管理员在“内网穿透”页点击“生成配对 Agent”，下载 macOS / Linux / Windows 包；客户运行安装脚本后，Agent 会读取 `agent-profile.json`，调用面板 `/api/agents/bootstrap`，写入 `xray-bridge.json`、`bridge-dashboard.json` 和 `agent-state.json`，然后清空一次性 token |
 | 静态安装包 / JSON | 保留给离线、受限网络或排障场景。管理员仍可下载静态后端安装包，或导出 `xray-bridge.json` 手动导入本机客户端 |
 
-配对 token 只在生成包时出现一次，面板持久化只保存 hash；bootstrap 成功后 token 会被本地脚本清空。客户机器不会开放公网管理端口，本地控制台只监听 `http://127.0.0.1:19090/`，用于查看 runtime、服务探测、配置状态和日志。面板侧远程心跳、远程命令和日志回传接口仅保留数据结构空间，当前版本不执行远程控制。
+配对 token 只在生成包时出现一次，面板持久化只保存 hash；bootstrap 成功后 token 会被本地脚本清空。客户机器不会开放公网管理端口，本地控制台只监听 `http://127.0.0.1:19090/`，用于查看 runtime、服务探测、配置状态、日志和本机代理/TUN 兼容状态。Shadowrocket、Clash 等本地代理开启时，客户端会尽量把 Bridge 到 VPS 的 reverse 出站绑定到物理网卡；控制台也提供“应用代理兼容”按钮。面板侧远程心跳、远程命令和日志回传接口仅保留数据结构空间，当前版本不执行远程控制。
 
 ## 重要安全说明
 

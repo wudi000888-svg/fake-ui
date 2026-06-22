@@ -155,18 +155,18 @@ def shell_start_script():
     return """#!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-if [ -f agent-profile.json ] && [ -f bootstrap-agent.py ]; then
-  PYTHON="${PYTHON:-}"
-  if [ -z "$PYTHON" ]; then
-    if command -v python3 >/dev/null 2>&1; then
-      PYTHON=python3
-    elif command -v python >/dev/null 2>&1; then
-      PYTHON=python
-    else
-      echo "未找到 Python。请先安装 Python 3。" >&2
-      exit 1
-    fi
+PYTHON="${PYTHON:-}"
+if [ -z "$PYTHON" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON=python3
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON=python
+  else
+    echo "未找到 Python。请先安装 Python 3。" >&2
+    exit 1
   fi
+fi
+if [ -f agent-profile.json ] && [ -f bootstrap-agent.py ]; then
   "$PYTHON" bootstrap-agent.py
 fi
 XRAY="${XRAY:-./xray}"
@@ -181,6 +181,21 @@ fi
 if [ ! -f xray-bridge.json ]; then
   echo "未找到 xray-bridge.json。请先从 fake-ui 面板导入配置。" >&2
   exit 1
+fi
+if [ -f bridge-dashboard.py ] && [ -f bridge-dashboard.json ]; then
+  "$PYTHON" - <<'PY'
+import importlib.util
+from pathlib import Path
+base = Path.cwd()
+spec = importlib.util.spec_from_file_location("bridge_dashboard", base / "bridge-dashboard.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+try:
+    result = module.apply_network_bypass(module.load_metadata(base), base)
+    print(result.get("message", "已应用代理兼容"))
+except Exception as exc:
+    print(f"代理兼容保持默认：{exc}")
+PY
 fi
 "$XRAY" run -test -c xray-bridge.json
 nohup "$XRAY" run -c xray-bridge.json > bridge-client.out.log 2> bridge-client.err.log &
@@ -206,14 +221,14 @@ def powershell_start_script():
 Set-Location $PSScriptRoot
 $Profile = Join-Path $PSScriptRoot "agent-profile.json"
 $Bootstrap = Join-Path $PSScriptRoot "bootstrap-agent.py"
+$Python = Get-Command python.exe -ErrorAction SilentlyContinue
+if (-not $Python) {
+  $Python = Get-Command py.exe -ErrorAction SilentlyContinue
+}
+if (-not $Python) {
+  throw "未找到 Python。请先安装 Python 3。"
+}
 if ((Test-Path $Profile) -and (Test-Path $Bootstrap)) {
-  $Python = Get-Command python.exe -ErrorAction SilentlyContinue
-  if (-not $Python) {
-    $Python = Get-Command py.exe -ErrorAction SilentlyContinue
-  }
-  if (-not $Python) {
-    throw "未找到 Python。请先安装 Python 3。"
-  }
   & $Python.Source $Bootstrap
 }
 $Xray = Join-Path $PSScriptRoot "xray.exe"
@@ -227,6 +242,13 @@ if (-not (Test-Path $Xray)) {
 }
 if (-not (Test-Path (Join-Path $PSScriptRoot "xray-bridge.json"))) {
   throw "未找到 xray-bridge.json。请先从 fake-ui 面板导入配置。"
+}
+if ((Test-Path (Join-Path $PSScriptRoot "bridge-dashboard.py")) -and (Test-Path (Join-Path $PSScriptRoot "bridge-dashboard.json"))) {
+  try {
+    & $Python.Source -c "import importlib.util; from pathlib import Path; base=Path.cwd(); spec=importlib.util.spec_from_file_location('bridge_dashboard', base / 'bridge-dashboard.py'); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); print(m.apply_network_bypass(m.load_metadata(base), base).get('message', '已应用代理兼容'))"
+  } catch {
+    Write-Host "代理兼容保持默认：$($_.Exception.Message)"
+  }
 }
 & $Xray run -test -c (Join-Path $PSScriptRoot "xray-bridge.json")
 $Process = Start-Process -FilePath $Xray -ArgumentList @("run", "-c", (Join-Path $PSScriptRoot "xray-bridge.json")) -RedirectStandardOutput (Join-Path $PSScriptRoot "bridge-client.out.log") -RedirectStandardError (Join-Path $PSScriptRoot "bridge-client.err.log") -PassThru
