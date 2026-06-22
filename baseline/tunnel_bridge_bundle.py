@@ -670,6 +670,83 @@ def reverse_outbounds(config):
     ]
 
 
+def tunnel_outbound_key(outbound):
+    tag = str((outbound or {}).get("tag") or "")
+    if tag in {"direct", "block"}:
+        return tag
+    for prefix in ("tunnel-local-service-", "tunnel-reverse-out-", "tunnel-local-service", "tunnel-reverse-out"):
+        if tag == prefix.rstrip("-"):
+            return tag
+        if tag.startswith(prefix):
+            suffix = tag[len(prefix):].strip("-")
+            return f"{prefix.rstrip('-')}:{suffix or '__default__'}"
+    return tag
+
+
+def route_inbound_key(rule):
+    inbound_tags = (rule or {}).get("inboundTag") or []
+    if isinstance(inbound_tags, str):
+        inbound_tags = [inbound_tags]
+    tunnel_tags = [str(tag or "") for tag in inbound_tags if str(tag or "").startswith("tunnel-reverse-in")]
+    return "|".join(sorted(tunnel_tags)) if tunnel_tags else ""
+
+
+def merge_xray_bridge_config(imported_config, existing_config):
+    if not isinstance(imported_config, dict) or not isinstance(existing_config, dict):
+        return imported_config
+    imported_outbounds = list(imported_config.get("outbounds") or [])
+    existing_outbounds = list(existing_config.get("outbounds") or [])
+    if not existing_outbounds:
+        return imported_config
+    merged = json.loads(json.dumps(existing_config))
+    by_key = {tunnel_outbound_key(item): item for item in merged.get("outbounds") or []}
+    for outbound in imported_outbounds:
+        key = tunnel_outbound_key(outbound)
+        if not key:
+            continue
+        by_key[key] = outbound
+    ordered = []
+    emitted = set()
+    for outbound in merged.get("outbounds") or []:
+        key = tunnel_outbound_key(outbound)
+        replacement = by_key.get(key)
+        if replacement is not None and key not in emitted:
+            ordered.append(replacement)
+            emitted.add(key)
+    for outbound in imported_outbounds:
+        key = tunnel_outbound_key(outbound)
+        if key and key not in emitted:
+            ordered.append(outbound)
+            emitted.add(key)
+    merged["outbounds"] = ordered
+
+    merged.setdefault("routing", {})
+    existing_rules = list((merged.get("routing") or {}).get("rules") or [])
+    imported_rules = list((imported_config.get("routing") or {}).get("rules") or [])
+    by_route = {route_inbound_key(rule): rule for rule in existing_rules if route_inbound_key(rule)}
+    for rule in imported_rules:
+        key = route_inbound_key(rule)
+        if key:
+            by_route[key] = rule
+    ordered_rules = []
+    emitted_routes = set()
+    for rule in existing_rules:
+        key = route_inbound_key(rule)
+        if key:
+            if key not in emitted_routes:
+                ordered_rules.append(by_route[key])
+                emitted_routes.add(key)
+        else:
+            ordered_rules.append(rule)
+    for rule in imported_rules:
+        key = route_inbound_key(rule)
+        if key and key not in emitted_routes:
+            ordered_rules.append(rule)
+            emitted_routes.add(key)
+    merged["routing"]["rules"] = ordered_rules
+    return merged
+
+
 def reverse_server_addresses(config):
     values = []
     for outbound in reverse_outbounds(config):
@@ -855,6 +932,7 @@ def is_private_tcp_service(service_id, host, port):
 
 def infer_dashboard_services_from_xray_config(config, source_filename=""):
     outbounds = list((config or {}).get("outbounds") or [])
+    source_bridge_id = infer_bridge_id_from_filename(source_filename)
     reverse_by_inbound = {}
     reverse_by_suffix = {}
     for outbound in outbounds:
@@ -890,6 +968,8 @@ def infer_dashboard_services_from_xray_config(config, source_filename=""):
         reverse_domain = infer_public_domain(reverse_settings.get("address"))
         service_id = service_id_from_tag(tag, reverse_domain.replace(".", "-") if reverse_domain else f"service-{index + 1}")
         is_private_tcp = is_private_tcp_service(service_id, host, port)
+        if is_private_tcp and source_bridge_id and service_id in {reverse_domain.replace(".", "-"), f"service-{index + 1}"}:
+            service_id = source_bridge_id
         public_domain = "" if is_private_tcp else (infer_public_domain_from_service_id(service_id) or reverse_domain)
         services.append(
             {
@@ -951,11 +1031,22 @@ def preserve_local_network_overrides(imported_config, existing_config):
     return merged
 
 
-def merge_metadata_services(metadata, services, bridge_id=""):
+def service_merge_key(service):
+    item = service or {}
+    service_id = str(item.get("id") or "").strip()
+    if service_id:
+        return f"id:{service_id}"
+    target_port = int(item.get("target_port") or 0)
+    if target_port:
+        return f"target:{str(item.get('target_host') or '127.0.0.1')}:{target_port}"
+    return ""
+
+
+def merge_metadata_services(metadata, services, bridge_id="", preserve_existing=False):
     merged = dict(metadata or {})
     if not isinstance(merged.get("dashboard"), dict):
         merged["dashboard"] = {"host": DEFAULT_HOST, "port": DEFAULT_PORT}
-    if bridge_id:
+    if bridge_id and not preserve_existing:
         merged["bridge_id"] = bridge_id
         if merged.get("bundle_kind") in {"shared", "client-template", "bridge-client"}:
             merged["bundle_kind"] = "shared"
@@ -966,7 +1057,14 @@ def merge_metadata_services(metadata, services, bridge_id=""):
         for item in existing_services
         if item.get("target_port")
     }
-    enriched = []
+    by_key = {}
+    order = []
+    if preserve_existing:
+        for service in existing_services:
+            key = service_merge_key(service)
+            if key:
+                by_key[key] = dict(service)
+                order.append(key)
     for service in services or []:
         item = dict(service)
         existing = by_id.get(str(item.get("id") or "")) or by_target.get(
@@ -981,15 +1079,31 @@ def merge_metadata_services(metadata, services, bridge_id=""):
                 item["name"] = existing.get("name")
             if not item.get("kind") and existing.get("kind"):
                 item["kind"] = existing.get("kind")
-        enriched.append(item)
-    merged["services"] = enriched
+        key = service_merge_key(item)
+        if key:
+            if key not in by_key:
+                order.append(key)
+            by_key[key] = item
+    merged["services"] = [by_key[key] for key in order if key in by_key]
     if merged["services"]:
         first = merged["services"][0]
-        merged["bridge_id"] = bridge_id or merged.get("bridge_id") or first.get("id") or "manual-bridge"
+        merged["bridge_id"] = ("" if preserve_existing else bridge_id) or merged.get("bridge_id") or first.get("id") or "manual-bridge"
     return merged
 
 
-def import_json_file(base_dir, filename, content):
+def should_preserve_existing_services(metadata, services):
+    existing_services = [item for item in (metadata or {}).get("services") or [] if isinstance(item, dict)]
+    if not existing_services or not services:
+        return False
+    bundle_kind = str((metadata or {}).get("bundle_kind") or "").strip()
+    if bundle_kind not in {"shared", "client-template", "bridge-client"}:
+        return False
+    if len(services) == 1:
+        return True
+    return all((item or {}).get("kind") == "private_tcp" for item in services)
+
+
+def import_json_file(base_dir, filename, content, merge_xray=False):
     clean = str(filename or "").strip()
     if clean not in IMPORT_FILENAMES:
         raise RuntimeError("只支持导入 xray-bridge.json、bridge-dashboard.json 或 agent-profile.json")
@@ -1001,6 +1115,8 @@ def import_json_file(base_dir, filename, content):
         validate_agent_profile(content)
     if clean == "xray-bridge.json":
         existing = load_json_file(base_dir / clean)
+        if merge_xray:
+            content = merge_xray_bridge_config(content, existing)
         content = preserve_local_network_overrides(content, existing)
     write_json_atomic(base_dir / clean, content)
     return clean
@@ -1483,19 +1599,31 @@ class Handler(BaseHTTPRequestHandler):
             if length <= 0 or length > 2 * 1024 * 1024:
                 raise RuntimeError("请求体为空或过大")
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            filename = import_json_file(self.base_dir, payload.get("filename"), payload.get("content"))
             metadata_updated = False
-            if filename == "xray-bridge.json":
-                source_filename = payload.get("source_filename") or payload.get("original_filename") or ""
+            requested_filename = str(payload.get("filename") or "").strip()
+            source_filename = payload.get("source_filename") or payload.get("original_filename") or ""
+            services = []
+            preserve_existing = False
+            if requested_filename == "xray-bridge.json":
                 services = infer_dashboard_services_from_xray_config(
                     payload.get("content") or {},
                     source_filename,
                 )
+                preserve_existing = should_preserve_existing_services(type(self).metadata, services)
+            filename = import_json_file(
+                self.base_dir,
+                requested_filename,
+                payload.get("content"),
+                merge_xray=preserve_existing,
+            )
+            if filename == "xray-bridge.json":
                 if services:
+                    source_bridge_id = infer_bridge_id_from_filename(source_filename)
                     type(self).metadata = merge_metadata_services(
                         type(self).metadata,
                         services,
-                        infer_bridge_id_from_filename(source_filename),
+                        source_bridge_id,
+                        preserve_existing=preserve_existing,
                     )
                     write_json_atomic(self.base_dir / "bridge-dashboard.json", type(self).metadata)
                     metadata_updated = True

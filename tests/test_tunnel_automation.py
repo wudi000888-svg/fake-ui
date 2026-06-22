@@ -2005,6 +2005,141 @@ def test_bridge_dashboard_import_infers_ssh_as_private_tcp_without_public_domain
     assert merged_by_id["office-mac-ssh"]["public_domain"] == ""
 
 
+def test_bridge_dashboard_metadata_merge_keeps_existing_services_when_importing_ssh(tmp_path):
+    import tunnel_bridge_bundle
+
+    script_path = tmp_path / "bridge_dashboard_runtime.py"
+    script_path.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("bridge_dashboard_runtime", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.should_preserve_existing_services(
+        {
+            "bundle_kind": "shared",
+            "services": [
+                {
+                    "id": "site-example-com",
+                    "kind": "public_https",
+                    "target_host": "127.0.0.1",
+                    "target_port": 10001,
+                }
+            ],
+        },
+        [
+            {
+                "id": "office-mac-ssh",
+                "kind": "private_tcp",
+                "target_host": "127.0.0.1",
+                "target_port": 22,
+            }
+        ],
+    )
+    merged = module.merge_metadata_services(
+        {
+            "bundle_kind": "shared",
+            "bridge_id": "office-mac",
+            "dashboard": {"host": "127.0.0.1", "port": 19090},
+            "runtime": {"kind": "manual"},
+            "services": [
+                {
+                    "id": "site-example-com",
+                    "name": "site.example.com",
+                    "kind": "public_https",
+                    "public_domain": "site.example.com",
+                    "target_host": "127.0.0.1",
+                    "target_port": 10001,
+                }
+            ],
+        },
+        [
+            {
+                "id": "office-mac-ssh",
+                "name": "SSH",
+                "kind": "private_tcp",
+                "public_domain": "",
+                "target_host": "127.0.0.1",
+                "target_port": 22,
+            }
+        ],
+        "office-mac",
+        preserve_existing=True,
+    )
+    by_id = {item["id"]: item for item in merged["services"]}
+    assert set(by_id) == {"site-example-com", "office-mac-ssh"}
+    assert by_id["site-example-com"]["public_domain"] == "site.example.com"
+    assert by_id["office-mac-ssh"]["kind"] == "private_tcp"
+    assert by_id["office-mac-ssh"]["public_domain"] == ""
+
+
+def test_bridge_dashboard_xray_import_merges_single_ssh_with_existing_services(tmp_path):
+    import tunnel_bridge_bundle
+    import tunnel_config_builder
+
+    script_path = tmp_path / "bridge_dashboard_runtime.py"
+    script_path.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("bridge_dashboard_runtime", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    profile = sample_reality_profile()
+    existing_cfg = tunnel_config_builder.build_shared_bridge_config(
+        [
+            sample_public_tunnel(
+                id="site-example-com",
+                public_domain="site.example.com",
+                target_port=10001,
+                bridge_mode="shared",
+                bridge_id="office-mac",
+            ),
+            sample_public_tunnel(
+                id="api-example-com",
+                public_domain="api.example.com",
+                target_port=10002,
+                bridge_mode="shared",
+                bridge_id="office-mac",
+                client_id="22222222-2222-4222-8222-222222222222",
+            ),
+        ],
+        profile,
+    )
+    imported_ssh_cfg = tunnel_config_builder.build_bridge_config(
+        sample_public_tunnel(
+            id="office-mac-ssh",
+            kind="private_tcp",
+            name="SSH",
+            public_domain="",
+            target_port=22,
+            bridge_mode="dedicated",
+            bridge_id="office-mac-ssh",
+            client_id="33333333-3333-4333-8333-333333333333",
+        ),
+        profile,
+    )
+    (tmp_path / "xray-bridge.json").write_text(json.dumps(existing_cfg), encoding="utf-8")
+
+    module.import_json_file(tmp_path, "xray-bridge.json", imported_ssh_cfg, merge_xray=True)
+
+    merged = json.loads((tmp_path / "xray-bridge.json").read_text(encoding="utf-8"))
+    outbound_tags = {item["tag"] for item in merged["outbounds"]}
+    rules = merged["routing"]["rules"]
+    assert "tunnel-local-service-site-example-com" in outbound_tags
+    assert "tunnel-reverse-out-site-example-com" in outbound_tags
+    assert "tunnel-local-service-api-example-com" in outbound_tags
+    assert "tunnel-reverse-out-api-example-com" in outbound_tags
+    assert "tunnel-local-service" in outbound_tags
+    assert "tunnel-reverse-out" in outbound_tags
+    assert {
+        ("tunnel-reverse-in-site-example-com", "tunnel-local-service-site-example-com"),
+        ("tunnel-reverse-in-api-example-com", "tunnel-local-service-api-example-com"),
+        ("tunnel-reverse-in", "tunnel-local-service"),
+    }.issubset({
+        (item["inboundTag"][0], item["outboundTag"])
+        for item in rules
+        if item.get("inboundTag") and item.get("outboundTag")
+    })
+
+
 def test_bridge_dashboard_keeps_raw_runtime_output_inside_debug_details(tmp_path):
     import tunnel_bridge_bundle
 
