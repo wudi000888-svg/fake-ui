@@ -3,6 +3,7 @@ import urllib.parse
 
 import hy2_env_service
 import user_store
+import desktop_config_builder
 from panel_config import HY2_MASQUERADE_URL
 from proxy_utils import normalize_proxy_type, proxy_auth_enabled
 
@@ -42,6 +43,7 @@ def build_config(mode="direct", addr="", port="", user="", password="", proxy_ty
 
     auth_users = {"admin": hy_pass}
     auth_users.update(active_auth_users())
+    auth_users.update(desktop_config_builder.desktop_auth_users())
 
     lines = [
         f"listen: :{listen_port}",

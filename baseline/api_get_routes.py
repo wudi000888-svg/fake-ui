@@ -2,6 +2,7 @@ import urllib.parse
 
 import api_v2_routes
 import api_tunnel_routes
+import api_desktop_routes
 import audit_log
 import backup_manager
 import hy2_panel
@@ -36,6 +37,10 @@ def handle_get(path, session):
     tunnel_result = api_tunnel_routes.handle_tunnel_get(path, session)
     if tunnel_result is not None:
         return tunnel_result
+
+    desktop_result = api_desktop_routes.handle_desktop_get(path, session)
+    if desktop_result is not None:
+        return desktop_result
 
     if clean == "/api/dashboard":
         return ok(data=ops.dashboard(session))

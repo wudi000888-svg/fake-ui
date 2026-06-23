@@ -5,6 +5,9 @@ from datetime import datetime, timedelta, timezone
 
 import db
 import store_facade
+import desktop_catalog
+import desktop_config_builder
+import proxy_bypass
 import tunnel_bridge_bundle
 import tunnel_catalog
 import tunnel_config_builder
@@ -14,7 +17,8 @@ from repositories.sqlite_settings import SQLiteSettingsRepository
 
 SETTINGS_KEY = "agent_pairings"
 BUNDLE_KINDS = {"dedicated", "shared"}
-CAPABILITIES = ["bootstrap", "local_status"]
+BASE_CAPABILITIES = ["bootstrap", "local_status"]
+CAPABILITIES = BASE_CAPABILITIES
 DEFAULT_TTL_MINUTES = 30
 AUTO_PLATFORM = "auto"
 
@@ -245,6 +249,36 @@ def bridge_config_for_pairing(record, requested_platform=""):
     raise RuntimeError("bundle kind is invalid")
 
 
+def capabilities_for_payload(xray_config, remote_desktop=None):
+    values = list(BASE_CAPABILITIES)
+    if xray_config:
+        values.append("tcp_tunnel")
+    if remote_desktop:
+        values.append("remote_desktop")
+    values.append("proxy_compat")
+    result = []
+    for value in values:
+        if value not in result:
+            result.append(value)
+    return result
+
+
+def remote_desktop_for_bridge(bridge_id):
+    try:
+        device = desktop_catalog.get_device(bridge_id)
+    except RuntimeError:
+        return None
+    if not device.get("enabled", True):
+        return None
+    return {
+        "device": device,
+        "hysteria_config": desktop_config_builder.hysteria_client_config(device),
+        "wireguard_config": desktop_config_builder.wireguard_config(device),
+        "proxy_bypass": proxy_bypass.desktop_proxy_bypass(),
+        "topology": desktop_config_builder.topology(),
+    }
+
+
 def validate_bootstrap_request(data):
     if not isinstance(data, dict):
         raise RuntimeError("request body must be an object")
@@ -266,23 +300,43 @@ def bootstrap_agent(data):
     snapshot = pairing_snapshot(token_id, pairing_token)
     effective_platform = effective_platform_for_record(snapshot, (data or {}).get("platform"))
     xray_config, dashboard_metadata = bridge_config_for_pairing(snapshot, effective_platform)
+    remote_desktop = remote_desktop_for_bridge(snapshot.get("bridge_id"))
+    tcp_proxy_compat = proxy_bypass.tcp_reality_proxy_bypass(xray_config)
+    proxy_compat = (remote_desktop or {}).get("proxy_bypass") or tcp_proxy_compat
     record = mark_pairing_used(token_id, pairing_token, expected=snapshot)
     runtime = dashboard_metadata.get("runtime") or {}
+    capabilities = capabilities_for_payload(xray_config, remote_desktop)
     agent = {
         "agent_id": record.get("agent_id"),
         "bridge_id": record.get("bridge_id"),
         "bundle_kind": record.get("bundle_kind"),
         "platform": effective_platform,
-        "capabilities": list(record.get("capabilities") or CAPABILITIES),
+        "capabilities": capabilities,
     }
+    dashboard_metadata = dict(dashboard_metadata or {})
+    dashboard_metadata["capabilities"] = capabilities
+    dashboard_metadata["proxy_bypass"] = proxy_compat
+    if remote_desktop:
+        dashboard_metadata["remote_desktop"] = {
+            "device": remote_desktop.get("device"),
+            "topology": remote_desktop.get("topology"),
+            "proxy_bypass": remote_desktop.get("proxy_bypass"),
+            "hysteria_config_path": "hysteria-desktop.yaml",
+            "wireguard_config_path": "wireguard.conf",
+        }
     install = {
         "service_name": runtime.get("name", ""),
         "restart_command": runtime.get("restart_command", ""),
         "log_command": runtime.get("log_command", ""),
     }
-    return {
+    payload = {
         "agent": agent,
         "xray_config": xray_config,
         "dashboard_metadata": dashboard_metadata,
         "install": install,
+        "proxy_bypass": proxy_compat,
+        "tcp_proxy_bypass": tcp_proxy_compat,
     }
+    if remote_desktop:
+        payload["remote_desktop"] = remote_desktop
+    return payload

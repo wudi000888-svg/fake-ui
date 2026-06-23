@@ -197,7 +197,6 @@ except Exception as exc:
     print(f"代理兼容保持默认：{exc}")
 PY
 fi
-"$XRAY" run -test -c xray-bridge.json
 nohup "$XRAY" run -c xray-bridge.json > bridge-client.out.log 2> bridge-client.err.log &
 echo $! > bridge-client.pid
 echo "fake-ui bridge client started: $(cat bridge-client.pid)"
@@ -250,7 +249,6 @@ if ((Test-Path (Join-Path $PSScriptRoot "bridge-dashboard.py")) -and (Test-Path 
     Write-Host "代理兼容保持默认：$($_.Exception.Message)"
   }
 }
-& $Xray run -test -c (Join-Path $PSScriptRoot "xray-bridge.json")
 $Process = Start-Process -FilePath $Xray -ArgumentList @("run", "-c", (Join-Path $PSScriptRoot "xray-bridge.json")) -RedirectStandardOutput (Join-Path $PSScriptRoot "bridge-client.out.log") -RedirectStandardError (Join-Path $PSScriptRoot "bridge-client.err.log") -PassThru
 Set-Content -Path (Join-Path $PSScriptRoot "bridge-client.pid") -Value $Process.Id
 Write-Host "fake-ui bridge client started: $($Process.Id)"
@@ -341,7 +339,7 @@ def package(output_dir, version):
 def main():
     parser = argparse.ArgumentParser(description="Package the standalone fake-ui bridge client.")
     parser.add_argument("output_dir", help="Directory for release assets")
-    parser.add_argument("--version", default="3.0.2")
+    parser.add_argument("--version", default="3.1.0")
     args = parser.parse_args()
     for output in package(args.output_dir, args.version):
         print(output)

@@ -22,10 +22,10 @@ def test_frontend_v2_modules_exist_and_index_uses_module_entry():
     index = (ROOT / "baseline" / "frontend" / "index.html").read_text(encoding="utf-8")
     assert 'type="module"' in index
     assert "assets/js/main.js" in index
-    assert "/assets/js/main.js?v=3.0.2" in index
-    assert "/assets/css/tokens.css?v=3.0.2" in index
-    assert "/assets/css/layout.css?v=3.0.2" in index
-    assert "/assets/css/components.css?v=3.0.2" in index
+    assert "/assets/js/main.js?v=3.1.0" in index
+    assert "/assets/css/tokens.css?v=3.1.0" in index
+    assert "/assets/css/layout.css?v=3.1.0" in index
+    assert "/assets/css/components.css?v=3.1.0" in index
     assert 'rel="icon"' in index
     assert "favicon.svg" in index
 
@@ -71,7 +71,7 @@ def test_frontend_v2_main_is_modular_entrypoint():
     assert "bindAppActions" in main
     assert 'app.addEventListener("click"' not in main
     assert 'app.addEventListener("submit"' not in main
-    assert 'from "./pages/registry.js?v=3.0.2"' in main
+    assert 'from "./pages/registry.js?v=3.1.0"' in main
 
 
 def test_frontend_v2_module_imports_are_versioned_for_upgrade_cache_busting():
@@ -79,7 +79,7 @@ def test_frontend_v2_module_imports_are_versioned_for_upgrade_cache_busting():
         text = path.read_text(encoding="utf-8")
         for line in text.splitlines():
             if line.startswith("import ") and " from " in line and (".js\"" in line or ".js'" in line):
-                assert "?v=3.0.2" in line, f"{path.relative_to(ASSETS)} has unversioned import: {line}"
+                assert "?v=3.1.0" in line, f"{path.relative_to(ASSETS)} has unversioned import: {line}"
 
 
 def test_frontend_exposes_self_registration_and_admin_toggle():
@@ -188,7 +188,9 @@ def test_frontend_exposes_tunnel_management_screen():
     user_node_actions = read_asset("js/actions/users_nodes.js")
 
     assert 'if (state.route === "tunnels") return renderAdminTunnels(data);' in routes
-    assert "本地服务发布" in tunnels
+    assert "本地客户端" in tunnels
+    assert "下载本地客户端，把本地端口发布为海外 HTTPS 域名" in tunnels
+    assert "新增服务" in tunnels
     assert 'data-form="tunnel-save"' in tunnels
     assert 'data-action="tunnel-export"' not in tunnels
     assert 'data-action="tunnel-agent-config-export"' in tunnels
@@ -224,9 +226,48 @@ def test_frontend_exposes_tunnel_management_screen():
     assert "/api/tunnels/bridges/${encodeURIComponent(bridgeId)}/bridge-config" in handlers
     assert 'api("/api/tunnels/portal-config")' in handlers
     assert 'post("/api/tunnels/apply"' in handlers
+
+
+def test_frontend_exposes_remote_desktop_acceleration_screen():
+    registry = read_asset("js/pages/registry.js")
+    remote = read_asset("js/pages/admin/remote_desktop.js")
+    handlers = read_action_assets()
+    admin_actions = read_asset("js/actions/admin.js")
+    user_node_actions = read_asset("js/actions/users_nodes.js")
+
+    assert 'renderAdminRemoteDesktop' in registry
+    assert 'if (state.route === "remote-desktop") return renderAdminRemoteDesktop(data);' in registry
+    for label in [
+        "远程访问",
+        "Hysteria2 UDP 443",
+        "WireGuard",
+        "Sunshine",
+        "Moonlight",
+        "macOS",
+        "Linux",
+        "Windows",
+        "下载本地客户端",
+        "导出网络配置",
+        "应用远程访问配置",
+    ]:
+        assert label in remote
+    assert 'data-form="desktop-save"' in remote
+    assert 'data-action="desktop-create-sheet"' in remote
+    assert 'data-action="desktop-bundle-export"' in remote
+    assert 'data-action="desktop-wireguard-export"' in remote
+    assert 'data-action="desktop-server-wireguard-export"' in remote
+    assert 'data-action="desktop-apply-wireguard"' in remote
+    assert 'data-action="desktop-apply"' in remote
+    assert 'data-form="desktop-network-save"' in remote
+    assert 'post("/api/desktops/save"' in admin_actions
+    assert 'post("/api/desktops/network"' in admin_actions
+    assert 'post("/api/desktops/apply"' in admin_actions
+    assert 'post("/api/desktops/apply-wireguard"' in admin_actions
+    assert 'desktop-bundle-export' in handlers
+    assert 'desktop-wireguard-export' in handlers
     assert "downloadText" in handlers
     assert "state.data.domain_options = out.domain_options" in handlers
-    assert 'import { api, download, downloadText, post } from "../api.js?v=3.0.2";' in user_node_actions
+    assert 'import { api, download, downloadText, post } from "../api.js?v=3.1.0";' in user_node_actions
 
 
 def test_tunnel_screen_guides_customers_and_groups_shared_agents_once():
@@ -234,14 +275,18 @@ def test_tunnel_screen_guides_customers_and_groups_shared_agents_once():
     handlers = read_action_assets()
 
     for label in [
+        "本地客户端",
+        "下载本地客户端，把本地端口发布为海外 HTTPS 域名",
+        "新增服务",
         "详细教程",
         "三步发布本地服务",
         "下载安装包",
         "运行本地服务",
         "检查本地控制台",
-        "一个后端客户端可以承载多个服务",
-        "后端客户端",
-        "已发布服务",
+        "发布到海外 VPS",
+        "一个本地客户端可以承载多个服务",
+        "本地客户端",
+        "远程访问入口",
         "历史/停用服务",
         "客户操作步骤",
         "macOS 安装",
@@ -254,11 +299,11 @@ def test_tunnel_screen_guides_customers_and_groups_shared_agents_once():
         "PowerShell",
         "只下载一个通用安装包",
         "包含 macOS、Linux、Windows 三端脚本",
-        "高级：查看后端客户端分组",
-        "推荐后端客户端",
+        "高级：查看本地客户端分组",
+        "推荐本地客户端",
     ]:
         assert label in tunnels
-    for example in ["macbook-web", "test.guangyuego.top", "mac.guangyuego.top", "vless.guangyuego.top"]:
+    for example in ["macbook-web", "test.example.com", "mac.example.com", "vless.example.com"]:
         assert example not in tunnels
 
     assert "function sharedAgentCards" in tunnels
@@ -539,7 +584,7 @@ def test_frontend_v2_layout_prevents_dashboard_overflow():
 
     assert "version-chip" in layout_js
     assert "state.shell?.version" in layout_js
-    assert 'state.shell?.version || "3.0.2"' in layout_js
+    assert 'state.shell?.version || "3.1.0"' in layout_js
     assert "side-nav-scroll" in layout_js
     assert "side-nav-footer" in layout_js
     assert "nav-stack secondary" not in layout_js

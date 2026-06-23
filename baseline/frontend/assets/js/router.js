@@ -1,4 +1,4 @@
-import { state, setRouteFromLocation } from "./state.js?v=3.0.2";
+import { state, setRouteFromLocation } from "./state.js?v=3.1.0";
 
 
 export function navigate(route) {

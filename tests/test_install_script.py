@@ -22,19 +22,29 @@ def test_install_script_checks_v2_module_entry_and_sets_version():
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     routes = (ROOT / "baseline" / "api_v2_routes.py").read_text(encoding="utf-8")
 
-    assert "FAKE_UI_VERSION=3.0.2" in script
-    assert "FAKE_UI_VERSION: ${FAKE_UI_VERSION:-3.0.2}" in compose
+    assert "FAKE_UI_VERSION=3.1.0" in script
+    assert "FAKE_UI_VERSION: ${FAKE_UI_VERSION:-3.1.0}" in compose
     assert "FAKE_UI_STORE" not in script
     assert "FAKE_UI_STORE" not in compose
     assert "migrate-json-to-sqlite.py" not in script
     assert "migrate-json-to-sqlite.py" not in deploy
     assert "export-sqlite-to-json.py" not in script
     assert "export-sqlite-to-json.py" not in deploy
-    assert '"FAKE_UI_VERSION": "3.0.2"' in deploy
+    assert '"FAKE_UI_VERSION": "3.1.0"' in deploy
     assert "/assets/js/main.js" in script
     assert "/assets/app.js" not in script
     assert "/assets/app.js" not in deploy
     assert "APP_VERSION" in routes
+
+
+def test_install_script_prepares_wireguard_for_remote_desktop():
+    script = (ROOT / "scripts" / "install-fresh-vps.sh").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "wireguard-tools" in script
+    assert "install_wireguard_tools()" in script
+    assert "install_wireguard_tools" in script.split("if [[ \"$AUTO_YES\" != \"1\" ]];", 1)[-1]
+    assert "wireguard-tools" in dockerfile
 
 
 def test_default_runtime_images_are_pinned_not_latest():

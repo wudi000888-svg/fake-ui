@@ -1,7 +1,7 @@
-import { cssEscape, fillForm, openForm, closeBySelector } from "../dom.js?v=3.0.2";
+import { cssEscape, fillForm, openForm, closeBySelector } from "../dom.js?v=3.1.0";
 
 
-const FORM_SELECTOR = ".user-create-form, .user-edit-form, .node-edit-form, .plan-edit-form, .hy2-edit-form, .tunnel-edit-form";
+const FORM_SELECTOR = ".user-create-form, .user-edit-form, .node-edit-form, .plan-edit-form, .hy2-edit-form, .tunnel-edit-form, .remote-desktop-edit-form";
 
 
 export function closeForms(root) {
@@ -127,6 +127,43 @@ export function fillPlanForm(root, plan = {}) {
     enabled: plan?.enabled === false ? "false" : "true",
   }, ["id", "name", "days", "traffic_gb", "price", "node_groups", "sort", "enabled"]);
   if (form?.elements.id) form.elements.id.readOnly = Boolean(plan?.id);
+  form?.scrollIntoView({ behavior: "smooth", block: "start" });
+  form?.elements.name?.focus();
+}
+
+
+export function fillDesktopForm(root, device = {}) {
+  openForm(root, ".remote-desktop-edit-form");
+  const form = root.querySelector('form[data-form="desktop-save"]');
+  fillForm(form, {
+    id: device?.id || "",
+    name: device?.name || "",
+    enabled: device?.enabled === false ? "false" : "true",
+    role: device?.role || "host",
+    platform: device?.platform || "macos",
+    desktop_protocol: device?.desktop_protocol || "sunshine",
+    desktop_port: device?.desktop_port ?? "",
+    wg_ip: device?.wg_ip || "10.77.0.20",
+    wg_private_key: device?.wg_private_key || "",
+    wg_public_key: device?.wg_public_key || "",
+    wg_preshared_key: device?.wg_preshared_key || "",
+    listen_port: device?.listen_port ?? "51820",
+    remote_port: device?.remote_port ?? "51820",
+  }, [
+    "id",
+    "name",
+    "enabled",
+    "role",
+    "platform",
+    "desktop_protocol",
+    "desktop_port",
+    "wg_ip",
+    "wg_private_key",
+    "wg_public_key",
+    "wg_preshared_key",
+    "listen_port",
+    "remote_port",
+  ]);
   form?.scrollIntoView({ behavior: "smooth", block: "start" });
   form?.elements.name?.focus();
 }

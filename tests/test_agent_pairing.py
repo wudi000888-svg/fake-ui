@@ -21,6 +21,9 @@ MODULES = [
     "tunnel_catalog",
     "tunnel_config_builder",
     "tunnel_bridge_bundle",
+    "proxy_bypass",
+    "desktop_catalog",
+    "desktop_config_builder",
     "agent_pairing",
     "api_agent_routes",
     "api_post_routes",
@@ -108,18 +111,20 @@ def test_bootstrap_agent_consumes_valid_token_once(pairing_modules):
             "token_id": created["record"]["token_id"],
             "pairing_token": created["pairing_token"],
             "platform": "linux",
-            "agent_version": "3.0.2",
+            "agent_version": "3.1.0",
         }
     )
 
     assert response["agent"]["agent_id"]
     assert response["agent"]["bridge_id"] == "office-api"
     assert response["agent"]["bundle_kind"] == "dedicated"
-    assert response["agent"]["capabilities"] == ["bootstrap", "local_status"]
+    assert response["agent"]["capabilities"] == ["bootstrap", "local_status", "tcp_tunnel", "proxy_compat"]
     assert response["xray_config"]["outbounds"]
     assert response["dashboard_metadata"]["bridge_id"] == "office-api"
     assert response["dashboard_metadata"]["services"][0]["public_url"] == "https://api.example.com/"
     assert response["install"]["service_name"]
+    assert response["proxy_bypass"]["transport"] == "tcp_reality"
+    assert "Shadowrocket" in response["proxy_bypass"]["templates"]
 
     with pytest.raises(RuntimeError, match="used"):
         pairing.bootstrap_agent(
@@ -216,7 +221,7 @@ def test_public_bootstrap_route_returns_payload_without_admin_session(pairing_mo
     assert payload["ok"] is True
     assert payload["agent"]["agent_id"]
     assert payload["agent"]["bridge_id"] == "office-linux"
-    assert payload["agent"]["capabilities"] == ["bootstrap", "local_status"]
+    assert payload["agent"]["capabilities"] == ["bootstrap", "local_status", "tcp_tunnel", "proxy_compat"]
     assert payload["dashboard_metadata"]["bundle_kind"] == "shared"
     assert [service["id"] for service in payload["dashboard_metadata"]["services"]] == ["web", "api"]
     assert payload["xray_config"]["routing"]["rules"]
@@ -329,6 +334,89 @@ def test_http_bootstrap_ignores_stale_session_csrf(pairing_modules):
 
     assert captured["status"] == 200
     assert captured["payload"]["ok"] is True
+
+
+def test_bootstrap_agent_merges_remote_desktop_for_same_client_device(pairing_modules, monkeypatch):
+    pairing = pairing_modules["agent_pairing"]
+    tunnel_catalog = pairing_modules["tunnel_catalog"]
+    desktop_catalog = pairing_modules["desktop_catalog"]
+    desktop_config_builder = pairing_modules["desktop_config_builder"]
+
+    monkeypatch.setenv("HY2_CONNECT_HOST", "203.0.113.10")
+    monkeypatch.setenv("HY2_SNI", "hy.example.com")
+
+    tunnel_catalog.save_catalog(
+        {
+            "version": 1,
+            "tunnels": [
+                tunnel_payload(
+                    id="web",
+                    public_domain="web.example.com",
+                    bridge_mode="shared",
+                    bridge_id="office-linux",
+                    bridge_platform="linux",
+                ),
+                tunnel_payload(
+                    id="api",
+                    public_domain="api.example.com",
+                    target_port=5000,
+                    client_id="33333333-3333-4333-8333-333333333333",
+                    bridge_mode="shared",
+                    bridge_id="office-linux",
+                    bridge_platform="linux",
+                ),
+            ],
+        }
+    )
+    desktop_catalog.update_network(
+        {
+            "wg_network": "10.77.0.0/24",
+            "server_wg_ip": "10.77.0.1",
+            "server_wg_public_key": "server-public",
+        }
+    )
+    desktop_catalog.upsert_device(
+        {
+            "id": "office-linux",
+            "name": "Office Linux",
+            "platform": "linux",
+            "role": "both",
+            "desktop_protocol": "vnc",
+            "wg_ip": "10.77.0.20",
+            "wg_public_key": "client-public",
+            "wg_preshared_key": "shared-secret",
+        }
+    )
+    created = pairing.create_pairing("shared", "office-linux", "linux")
+
+    response = pairing.bootstrap_agent(
+        {
+            "schema": 1,
+            "token_id": created["record"]["token_id"],
+            "pairing_token": created["pairing_token"],
+            "platform": "linux",
+        }
+    )
+
+    assert response["agent"]["capabilities"] == [
+        "bootstrap",
+        "local_status",
+        "tcp_tunnel",
+        "remote_desktop",
+        "proxy_compat",
+    ]
+    assert sorted(service["id"] for service in response["dashboard_metadata"]["services"]) == ["api", "web"]
+    assert response["remote_desktop"]["device"]["id"] == "office-linux"
+    assert response["remote_desktop"]["hysteria_config"] == desktop_config_builder.hysteria_client_config(
+        response["remote_desktop"]["device"]
+    )
+    assert "server: 203.0.113.10:443" in response["remote_desktop"]["hysteria_config"]
+    assert "sni: hy.example.com" in response["remote_desktop"]["hysteria_config"]
+    assert "PresharedKey = shared-secret" in response["remote_desktop"]["wireguard_config"]
+    assert response["proxy_bypass"]["connect_host"] == "203.0.113.10"
+    assert response["proxy_bypass"]["sni"] == "hy.example.com"
+    assert "DOMAIN,hy.example.com,DIRECT" in response["proxy_bypass"]["templates"]["Shadowrocket"]
+    assert "IP-CIDR,203.0.113.10/32,DIRECT,no-resolve" in response["proxy_bypass"]["templates"]["Shadowrocket"]
 
 
 def test_pairing_token_is_consumed_atomically(pairing_modules, monkeypatch):

@@ -218,16 +218,16 @@ def test_domain_options_mark_resolved_domains_and_hide_reserved_domains(monkeypa
     ]
 
     monkeypatch.setattr(tunnel_domains, "resolve_ips", lambda domain: {
-        "ready.example.com": ["203.0.113.10"],
+        "ready.example.com": ["203.0.213.10"],
         "other.example.com": ["198.51.100.7"],
-        "panel.example.com": ["203.0.113.10"],
-        "node.example.com": ["203.0.113.10"],
-        "used.example.com": ["203.0.113.10"],
+        "panel.example.com": ["203.0.213.10"],
+        "node.example.com": ["203.0.213.10"],
+        "used.example.com": ["203.0.213.10"],
     }.get(domain, []))
 
     result = tunnel_domains.domain_options(
         candidates=["ready.example.com", "other.example.com", "panel.example.com", "node.example.com", "used.example.com"],
-        server_ips=["203.0.113.10"],
+        server_ips=["203.0.213.10"],
         panel_domains=["panel.example.com"],
         node_domains=["node.example.com"],
         tunnels=tunnels,
@@ -1002,7 +1002,7 @@ def test_bootstrap_agent_script_applies_local_proxy_bypass_to_downloaded_config(
                         {
                             "tag": "tunnel-reverse-out",
                             "protocol": "vless",
-                            "settings": {"address": "43.134.13.43", "port": 443},
+                            "settings": {"address": "203.0.113.43", "port": 443},
                             "streamSettings": {"network": "tcp", "security": "reality"},
                         },
                     ]
@@ -1034,8 +1034,82 @@ def test_bootstrap_agent_script_applies_local_proxy_bypass_to_downloaded_config(
 
     cfg = json.loads((tmp_path / "xray-bridge.json").read_text(encoding="utf-8"))
     reverse = next(item for item in cfg["outbounds"] if item["tag"] == "tunnel-reverse-out")
-    assert reverse["settings"]["address"] == "43.134.13.43"
+    assert reverse["settings"]["address"] == "203.0.113.43"
     assert reverse["streamSettings"]["sockopt"] == {"interface": "en0"}
+
+
+def test_bootstrap_agent_script_writes_remote_desktop_files_and_proxy_guide(tmp_path):
+    import tunnel_bridge_bundle
+
+    profile = {
+        "schema": 1,
+        "panel_url": "",
+        "token_id": "pair_script",
+        "pairing_token": "secret-script-token",
+        "bridge_id": "office-linux",
+        "bundle_kind": "shared",
+        "platform": "linux",
+        "agent_name": "Office Linux",
+        "dashboard": {"host": "127.0.0.1", "port": 19090},
+        "agent_id": "",
+        "capabilities": [],
+    }
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            return
+
+        def do_POST(self):
+            payload = {
+                "ok": True,
+                "agent": {"agent_id": "agent_script", "capabilities": ["bootstrap", "tcp_tunnel", "remote_desktop"]},
+                "xray_config": {"outbounds": [{"tag": "tunnel-reverse-out"}]},
+                "dashboard_metadata": {
+                    "bundle_kind": "shared",
+                    "bridge_id": "office-linux",
+                    "platform": "linux",
+                    "services": [{"id": "web", "target_host": "127.0.0.1", "target_port": 3000}],
+                },
+                "remote_desktop": {
+                    "device": {"id": "office-linux", "wg_ip": "10.77.0.20"},
+                    "hysteria_config": "server: 203.0.113.10:443\n",
+                    "wireguard_config": "[Interface]\nAddress = 10.77.0.20/32\n",
+                },
+                "proxy_bypass": {
+                    "connect_host": "203.0.113.10",
+                    "sni": "hy.example.com",
+                    "templates": {"Shadowrocket": "DOMAIN,hy.example.com,DIRECT"},
+                },
+                "install": {"service_name": "fake-ui-bridge-office-linux.service"},
+            }
+            raw = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        profile["panel_url"] = f"http://127.0.0.1:{server.server_port}"
+        (tmp_path / "agent-profile.json").write_text(json.dumps(profile), encoding="utf-8")
+        script = tmp_path / "bootstrap-agent.py"
+        script.write_text(tunnel_bridge_bundle.bootstrap_agent_script(), encoding="utf-8")
+
+        subprocess.run([sys.executable, str(script)], cwd=tmp_path, check=True, text=True, capture_output=True)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    assert (tmp_path / "hysteria-desktop.yaml").read_text(encoding="utf-8") == "server: 203.0.113.10:443\n"
+    assert "10.77.0.20/32" in (tmp_path / "wireguard.conf").read_text(encoding="utf-8")
+    proxy_guide = json.loads((tmp_path / "proxy-bypass.json").read_text(encoding="utf-8"))
+    assert proxy_guide["sni"] == "hy.example.com"
+    assert "remote_desktop" in json.loads((tmp_path / "agent-state.json").read_text(encoding="utf-8"))
+    metadata = json.loads((tmp_path / "bridge-dashboard.json").read_text(encoding="utf-8"))
+    assert metadata["remote_desktop"]["hysteria_config_path"] == "hysteria-desktop.yaml"
 
 
 def test_bootstrap_agent_script_accepts_complete_local_state_with_stale_token(tmp_path):
@@ -1205,7 +1279,7 @@ def test_standalone_bridge_client_assets_include_safe_bootstrap_templates():
     package_bridge_client = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(package_bridge_client)
 
-    files = package_bridge_client.files_for_platform("linux", "3.0.2")
+    files = package_bridge_client.files_for_platform("linux", "3.1.0")
     profile = json.loads(files["agent-profile.example.json"])
     raw = "\n".join(files.values())
 
@@ -1433,10 +1507,10 @@ def test_bridge_dashboard_importing_xray_config_updates_service_metadata(tmp_pat
         ],
     )
     node = {
-        "id": "new-guangyuego-top",
-        "name": "new.guangyuego.top",
+        "id": "new-example-com",
+        "name": "new.example.com",
         "kind": "public_https",
-        "public_domain": "new.guangyuego.top",
+        "public_domain": "new.example.com",
         "client_id": "11111111-1111-4111-8111-111111111111",
         "target_host": "127.0.0.1",
         "target_port": 8888,
@@ -1446,7 +1520,7 @@ def test_bridge_dashboard_importing_xray_config_updates_service_metadata(tmp_pat
     cfg = tunnel_config_builder.build_bridge_config(
         node,
         {
-            "address": "new.guangyuego.top",
+            "address": "new.example.com",
             "port": 443,
             "server_name": "www.cloudflare.com",
             "public_key": "public-key",
@@ -1500,8 +1574,8 @@ def test_bridge_dashboard_importing_xray_config_updates_service_metadata(tmp_pat
     assert import_payload["ok"] is True
     assert import_payload["filename"] == "xray-bridge.json"
     assert import_payload["metadata_updated"] is True
-    assert [(item["public_domain"], item["local"]) for item in services] == [("new.guangyuego.top", "127.0.0.1:8888")]
-    assert json.loads((tmp_path / "bridge-dashboard.json").read_text(encoding="utf-8"))["services"][0]["public_domain"] == "new.guangyuego.top"
+    assert [(item["public_domain"], item["local"]) for item in services] == [("new.example.com", "127.0.0.1:8888")]
+    assert json.loads((tmp_path / "bridge-dashboard.json").read_text(encoding="utf-8"))["services"][0]["public_domain"] == "new.example.com"
 
 
 def test_bridge_dashboard_importing_ip_xray_config_preserves_public_domain(tmp_path):
@@ -1510,14 +1584,14 @@ def test_bridge_dashboard_importing_ip_xray_config_preserves_public_domain(tmp_p
 
     metadata = tunnel_bridge_bundle.dashboard_metadata(
         "dedicated",
-        "new-guangyuego-top",
+        "new-example-com",
         "linux",
         [
             {
-                "id": "new-guangyuego-top",
+                "id": "new-example-com",
                 "kind": "public_https",
-                "name": "new.guangyuego.top",
-                "public_domain": "new.guangyuego.top",
+                "name": "new.example.com",
+                "public_domain": "new.example.com",
                 "portal_port": 18085,
                 "target_host": "127.0.0.1",
                 "target_port": 8888,
@@ -1525,10 +1599,10 @@ def test_bridge_dashboard_importing_ip_xray_config_preserves_public_domain(tmp_p
         ],
     )
     node = {
-        "id": "new-guangyuego-top",
-        "name": "new.guangyuego.top",
+        "id": "new-example-com",
+        "name": "new.example.com",
         "kind": "public_https",
-        "public_domain": "new.guangyuego.top",
+        "public_domain": "new.example.com",
         "client_id": "11111111-1111-4111-8111-111111111111",
         "target_host": "127.0.0.1",
         "target_port": 8888,
@@ -1538,7 +1612,7 @@ def test_bridge_dashboard_importing_ip_xray_config_preserves_public_domain(tmp_p
     cfg = tunnel_config_builder.build_bridge_config(
         node,
         {
-            "address": "203.0.113.10",
+            "address": "203.0.213.10",
             "port": 443,
             "server_name": "www.cloudflare.com",
             "public_key": "public-key",
@@ -1578,7 +1652,7 @@ def test_bridge_dashboard_importing_ip_xray_config_preserves_public_domain(tmp_p
             data=json.dumps(
                 {
                     "filename": "xray-bridge.json",
-                    "source_filename": "new-guangyuego-top-xray-bridge.json",
+                    "source_filename": "new-example-com-xray-bridge.json",
                     "content": cfg,
                 }
             ).encode("utf-8"),
@@ -1595,9 +1669,9 @@ def test_bridge_dashboard_importing_ip_xray_config_preserves_public_domain(tmp_p
         proc.wait(timeout=5)
 
     assert import_payload["ok"] is True
-    assert status["metadata"]["services"][0]["id"] == "new-guangyuego-top"
-    assert status["metadata"]["services"][0]["public_domain"] == "new.guangyuego.top"
-    assert status["metadata"]["services"][0]["public_url"] == "https://new.guangyuego.top/"
+    assert status["metadata"]["services"][0]["id"] == "new-example-com"
+    assert status["metadata"]["services"][0]["public_domain"] == "new.example.com"
+    assert status["metadata"]["services"][0]["public_url"] == "https://new.example.com/"
 
 
 def test_bridge_dashboard_import_preserves_local_network_overrides(tmp_path):
@@ -1606,14 +1680,14 @@ def test_bridge_dashboard_import_preserves_local_network_overrides(tmp_path):
 
     metadata = tunnel_bridge_bundle.dashboard_metadata(
         "dedicated",
-        "new-guangyuego-top",
+        "new-example-com",
         "linux",
         [
             {
-                "id": "new-guangyuego-top",
+                "id": "new-example-com",
                 "kind": "public_https",
-                "name": "new.guangyuego.top",
-                "public_domain": "new.guangyuego.top",
+                "name": "new.example.com",
+                "public_domain": "new.example.com",
                 "portal_port": 18085,
                 "target_host": "127.0.0.1",
                 "target_port": 8888,
@@ -1621,10 +1695,10 @@ def test_bridge_dashboard_import_preserves_local_network_overrides(tmp_path):
         ],
     )
     node = {
-        "id": "new-guangyuego-top",
-        "name": "new.guangyuego.top",
+        "id": "new-example-com",
+        "name": "new.example.com",
         "kind": "public_https",
-        "public_domain": "new.guangyuego.top",
+        "public_domain": "new.example.com",
         "client_id": "11111111-1111-4111-8111-111111111111",
         "target_host": "127.0.0.1",
         "target_port": 8888,
@@ -1634,7 +1708,7 @@ def test_bridge_dashboard_import_preserves_local_network_overrides(tmp_path):
     imported_cfg = tunnel_config_builder.build_bridge_config(
         node,
         {
-            "address": "new.guangyuego.top",
+            "address": "new.example.com",
             "port": 443,
             "server_name": "www.cloudflare.com",
             "public_key": "public-key",
@@ -1644,7 +1718,7 @@ def test_bridge_dashboard_import_preserves_local_network_overrides(tmp_path):
     )
     existing_cfg = json.loads(json.dumps(imported_cfg))
     reverse = next(item for item in existing_cfg["outbounds"] if item["tag"] == "tunnel-reverse-out")
-    reverse["settings"]["address"] = "203.0.113.10"
+    reverse["settings"]["address"] = "203.0.213.10"
     reverse["streamSettings"]["sockopt"] = {"interface": "en0"}
 
     (tmp_path / "bridge-dashboard.json").write_text(json.dumps(metadata), encoding="utf-8")
@@ -1679,7 +1753,7 @@ def test_bridge_dashboard_import_preserves_local_network_overrides(tmp_path):
             data=json.dumps(
                 {
                     "filename": "xray-bridge.json",
-                    "source_filename": "new-guangyuego-top-xray-bridge.json",
+                    "source_filename": "new-example-com-xray-bridge.json",
                     "content": imported_cfg,
                 }
             ).encode("utf-8"),
@@ -1695,7 +1769,7 @@ def test_bridge_dashboard_import_preserves_local_network_overrides(tmp_path):
     saved_cfg = json.loads((tmp_path / "xray-bridge.json").read_text(encoding="utf-8"))
     saved_reverse = next(item for item in saved_cfg["outbounds"] if item["tag"] == "tunnel-reverse-out")
     assert payload["ok"] is True
-    assert saved_reverse["settings"]["address"] == "203.0.113.10"
+    assert saved_reverse["settings"]["address"] == "203.0.213.10"
     assert saved_reverse["streamSettings"]["sockopt"] == {"interface": "en0"}
 
 
@@ -1721,14 +1795,14 @@ def test_bridge_dashboard_rejects_xray_config_imported_as_metadata(tmp_path):
     )
     cfg = tunnel_config_builder.build_bridge_config(
         {
-            "id": "new-guangyuego-top",
-            "public_domain": "new.guangyuego.top",
+            "id": "new-example-com",
+            "public_domain": "new.example.com",
             "client_id": "11111111-1111-4111-8111-111111111111",
             "target_host": "127.0.0.1",
             "target_port": 8888,
         },
         {
-            "address": "new.guangyuego.top",
+            "address": "new.example.com",
             "port": 443,
             "server_name": "www.cloudflare.com",
             "public_key": "public-key",
@@ -2175,6 +2249,67 @@ def test_bridge_dashboard_keeps_raw_runtime_output_inside_debug_details(tmp_path
     assert "运行时详情" in html
 
 
+def test_bridge_dashboard_renders_remote_desktop_and_proxy_guidance(tmp_path):
+    import tunnel_bridge_bundle
+
+    script_path = tmp_path / "bridge_dashboard_remote.py"
+    script_path.write_text(tunnel_bridge_bundle.dashboard_script(), encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("bridge_dashboard_remote", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    status = {
+        "metadata": {
+            "bundle_kind": "shared",
+            "bridge_id": "office-linux",
+            "platform": "linux",
+            "dashboard": {"host": "127.0.0.1", "port": 19090},
+            "runtime": {"kind": "manual", "name": "fake-ui bridge client"},
+            "services": [],
+            "remote_desktop": {
+                "device": {
+                    "id": "office-linux",
+                    "display_name": "Office Linux",
+                    "desktop_protocol": "vnc",
+                    "desktop_port": 5900,
+                    "wg_ip": "10.77.0.20",
+                },
+                "hysteria_config_path": "hysteria-desktop.yaml",
+                "wireguard_config_path": "wireguard.conf",
+            },
+            "proxy_bypass": {
+                "transport": "hysteria2_udp_443",
+                "connect_host": "203.0.113.10",
+                "sni": "hy.example.com",
+                "templates": {"Shadowrocket": "DOMAIN,hy.example.com,DIRECT"},
+            },
+            "tcp_proxy_bypass": {
+                "transport": "tcp_reality",
+                "connect_host": "vless.example.com",
+                "sni": "www.cloudflare.com",
+                "templates": {"Clash / Mihomo": "DOMAIN,vless.example.com,DIRECT"},
+            },
+        },
+        "runtime": {"ok": True, "message": "manual client mode"},
+        "xray_config": {"ok": True, "path": str(tmp_path / "xray-bridge.json"), "message": "valid json"},
+        "services": [],
+        "logs": [],
+        "config_preview": "{}",
+        "network": {},
+    }
+
+    html = module.render_dashboard(status).decode("utf-8")
+
+    assert "远程访问" in html
+    assert "Office Linux" in html
+    assert "10.77.0.20:5900" in html
+    assert "hysteria-desktop.yaml" in html
+    assert "wireguard.conf" in html
+    assert "代理兼容规则" in html
+    assert "DOMAIN,hy.example.com,DIRECT" in html
+    assert "DOMAIN,vless.example.com,DIRECT" in html
+
+
 def test_bridge_dashboard_accepts_manual_client_runtime(tmp_path):
     import tunnel_bridge_bundle
 
@@ -2243,7 +2378,7 @@ def test_bridge_dashboard_reports_proxy_tun_status_and_can_apply_bypass(tmp_path
             {
                 "tag": "tunnel-reverse-out",
                 "protocol": "vless",
-                "settings": {"address": "43.134.13.43", "port": 443},
+                "settings": {"address": "203.0.113.43", "port": 443},
                 "streamSettings": {"network": "tcp", "security": "reality"},
             },
         ]
@@ -2265,7 +2400,7 @@ def test_bridge_dashboard_reports_proxy_tun_status_and_can_apply_bypass(tmp_path
         joined = " ".join(command)
         if "scutil --dns" in joined:
             return {"ok": True, "message": "nameserver[0] : 198.18.0.2\nif_index : 27 (utun6)"}
-        if "route -n get 43.134.13.43" in joined:
+        if "route -n get 203.0.113.43" in joined:
             return {"ok": True, "message": "interface: utun6"}
         if "route -n get 1.1.1.1" in joined:
             return {"ok": True, "message": "interface: en0"}

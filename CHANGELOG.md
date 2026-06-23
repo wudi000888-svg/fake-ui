@@ -1,5 +1,15 @@
 # 更新日志
 
+## v3.1.0
+
+| 类型 | 内容 |
+| --- | --- |
+| 远程访问 | 新增独立管理页，使用 Hysteria2 UDP 443 承载 WireGuard 虚拟内网，用于 Sunshine / Moonlight / RDP / VNC 等高性能远程桌面场景 |
+| 通用设备 | 设备目录支持 macOS、Linux、Windows，不写死客户域名、个人机器或固定后端，适合新 VPS fresh install 后直接配置 |
+| 客户端包 | 每台设备可下载包含 `hysteria-desktop.yaml`、`wireguard.conf` 和三端脚本的客户端包，也可单独导出 WireGuard 配置 |
+| 兼容性 | TCP 443 继续由 Nginx / Xray / 面板 / 本地服务发布使用；UDP 443 归 Hysteria2，和现有本地服务发布、普通代理节点并存 |
+| 配置安全 | 远程访问设备使用独立 `desktop-*` Hysteria2 用户，应用配置时合并到现有 Hysteria2 userpass，不复用普通代理用户 |
+
 ## v3.0.2
 
 | 类型 | 内容 |
@@ -18,7 +28,7 @@
 | 本地客户端 | `bootstrap-agent.py` 会写入 `xray-bridge.json`、`bridge-dashboard.json` 和 `agent-state.json`，成功后清空 `agent-profile.json` 中的 token |
 | 本地控制台 | Bridge dashboard 升级为 fake-ui 风格本地应用，保留 `127.0.0.1:19090` local-only 边界，并展示 runtime、服务、setup、日志和状态 API |
 | 本地导入 | 导入 `xray-bridge.json` 后自动刷新 dashboard 服务 metadata，保留公网域名展示，并避免误把 Xray 配置导入为 dashboard/profile |
-| 域名与导出 | 本地服务发布新增域名资格自动识别，候选/已有域名中只提示已解析到本 VPS 且未被面板/普通节点占用的域名；服务级 JSON 导出收敛为后端客户端“导出总 JSON” |
+| 域名与导出 | 本地服务发布新增域名资格自动识别，候选/已有域名中只提示已解析到本 VPS 且未被面板/普通节点占用的域名；服务级 JSON 导出收敛为本地客户端“导出总 JSON” |
 | TCP/SSH | 私有 TCP 标注无需域名，shared bridge 默认补同 Bridge ID 的 SSH 映射，避免客户另行手动创建救援入口 |
 | TUN 共存 | 本地客户端会检测 Shadowrocket/Clash 等 TUN/fake-ip 环境，启动、bootstrap 或手动导入后尽量给 Bridge reverse 出站写入物理网卡 `sockopt.interface`，控制台提供“应用代理兼容”一键修复 |
 | 安全 | 配对 token 只 hash 存储；dashboard 渲染日志和配置预览时脱敏 UUID、Reality key、short ID 和 pairing token |
@@ -31,7 +41,7 @@
 | 本地服务发布 | 新增通用本地服务发布管理页，支持任意客户域名映射到 macOS、Linux 或 Windows 后端本地服务，不再绑定固定域名后缀 |
 | 自动化 | 面板保存发布服务时自动分配 portal 端口、生成独立 UUID、email、portal tag 和 reverse tag，并校验与普通代理用户 UUID 不复用 |
 | VPS | 应用服务发布入口时自动更新 Xray Reality portal 配置、生成 Nginx HTTP/HTTPS 反代、通过 certbot 签发域名证书并 reload Nginx |
-| 后端 Agent | 每个服务可导出 macOS launchd、Linux systemd 或 Windows Scheduled Task 安装包，包含 Xray 配置、安装、卸载和状态检查脚本 |
+| 本地客户端 | 每个服务可导出 macOS launchd、Linux systemd 或 Windows Scheduled Task 安装包，包含 Xray 配置、安装、卸载和状态检查脚本 |
 | 高级模式 | 支持“单机器共享 bridge”，同一后端机器上的多个服务可以合并到一个 Xray Agent 进程，SSH 等救援入口仍可保持独立 |
 | 架构 | 默认采用单服务单 bridge 模式，普通代理用户继续使用 `panel-user:<username>`，服务发布 bridge 使用 `tunnel:<id>` |
 | 升级 | 应用服务发布配置时会自动禁用旧版 `fake-ui-tunnel-*.conf` 单域名 Nginx 配置，避免旧 upstream 抢占新域名导致 502 |

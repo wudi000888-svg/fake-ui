@@ -1,4 +1,4 @@
-import { esc } from "../../components/layout.js?v=3.0.2";
+import { esc } from "../../components/layout.js?v=3.1.0";
 
 
 function statusLine(hy2 = {}) {

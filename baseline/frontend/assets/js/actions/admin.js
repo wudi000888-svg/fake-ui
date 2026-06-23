@@ -1,7 +1,7 @@
-import { download, post } from "../api.js?v=3.0.2";
-import { state } from "../state.js?v=3.0.2";
-import { closeForms, fillPlanForm } from "./forms.js?v=3.0.2";
-import { applyNodePayload } from "./users_nodes.js?v=3.0.2";
+import { api, download, downloadText, post } from "../api.js?v=3.1.0";
+import { state } from "../state.js?v=3.1.0";
+import { closeForms, fillDesktopForm, fillPlanForm } from "./forms.js?v=3.1.0";
+import { applyNodePayload } from "./users_nodes.js?v=3.1.0";
 
 
 async function fileToBase64(file) {
@@ -43,6 +43,69 @@ export async function handleAdminAction(button, app, { runAction }) {
     await runAction(async () => {
       await post("/api/cache/clear", {});
       return "缓存已清理";
+    });
+    return true;
+  }
+  if (actionName === "desktop-create-sheet") {
+    closeForms(app);
+    fillDesktopForm(app, {});
+    return true;
+  }
+  if (actionName === "desktop-form-close") {
+    closeForms(app);
+    return true;
+  }
+  if (actionName === "desktop-edit") {
+    const device = (state.data.desktops || []).find((item) => item.id === button.dataset.desktop);
+    closeForms(app);
+    fillDesktopForm(app, device);
+    return true;
+  }
+  if (actionName === "desktop-bundle-export") {
+    const id = button.dataset.desktop || "";
+    if (!id) return true;
+    await download(`/api/desktops/${encodeURIComponent(id)}/bundle`);
+    return true;
+  }
+  if (actionName === "desktop-wireguard-export") {
+    const id = button.dataset.desktop || "";
+    if (!id) return true;
+    const out = await api(`/api/desktops/${encodeURIComponent(id)}/wireguard-config`);
+    downloadText(out.filename || `${id}-wireguard.conf`, out.content || "", out.content_type || "text/plain");
+    return true;
+  }
+  if (actionName === "desktop-server-wireguard-export") {
+    const out = await api("/api/desktops/server-wireguard-config");
+    downloadText(out.filename || "fake-ui-vps-wireguard.conf", out.content || "", out.content_type || "text/plain");
+    return true;
+  }
+  if (actionName === "desktop-apply-wireguard") {
+    if (!confirm("确认在 VPS 上写入并启动 WireGuard？请先确认 VPS 私钥和设备公钥都已配置。")) return true;
+    await runAction(async () => {
+      const out = await post("/api/desktops/apply-wireguard", {});
+      return out?.result?.message || "VPS WireGuard 已应用";
+    });
+    return true;
+  }
+  if (actionName === "desktop-apply") {
+    if (!confirm("确认应用远程访问配置到 Hysteria2？这只会更新 desktop-* 设备账号，并重启 Hysteria2。")) return true;
+    await runAction(async () => {
+      const out = await post("/api/desktops/apply", {});
+      if (out?.devices) state.data.desktops = out.devices;
+      if (out?.topology) state.data.desktop_topology = out.topology;
+      return out?.result?.message || "远程访问配置已应用";
+    });
+    return true;
+  }
+  if (actionName === "desktop-action") {
+    const action = button.dataset.desktopAction || "";
+    if (action === "delete" && !confirm(`确认删除远程访问设备 ${button.dataset.desktop || ""}？`)) return true;
+    await runAction(async () => {
+      const out = await post("/api/desktops/action", { id: button.dataset.desktop || "", action });
+      if (out?.devices) state.data.desktops = out.devices;
+      if (out?.topology) state.data.desktop_topology = out.topology;
+      if (action === "delete") return "远程访问设备已删除";
+      return "远程访问设备已更新";
     });
     return true;
   }
@@ -122,6 +185,29 @@ export async function handleAdminForm(form, data, app, { runAction }) {
       applyNodePayload(out);
       if (out?.hy2) state.data.hy2 = out.hy2;
       return "Hysteria2 出口已保存，节点信息已同步";
+    });
+    return true;
+  }
+  if (form.dataset.form === "desktop-save") {
+    await runAction(async () => {
+      const out = await post("/api/desktops/save", {
+        ...data,
+        enabled: data.enabled !== "false",
+      });
+      if (out?.devices) state.data.desktops = out.devices;
+      if (out?.topology) state.data.desktop_topology = out.topology;
+      form.reset();
+      closeForms(app);
+      return "远程访问设备已保存";
+    });
+    return true;
+  }
+  if (form.dataset.form === "desktop-network-save") {
+    await runAction(async () => {
+      const out = await post("/api/desktops/network", data);
+      if (out?.network) state.data.desktop_network = out.network;
+      if (out?.topology) state.data.desktop_topology = out.topology;
+      return "远程访问网络设置已保存";
     });
     return true;
   }

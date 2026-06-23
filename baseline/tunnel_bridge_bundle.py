@@ -1239,6 +1239,63 @@ def probe_label(probe):
     return "不可达"
 
 
+def proxy_bypass_html(title, proxy):
+    if not isinstance(proxy, dict) or not proxy:
+        return ""
+    templates = proxy.get("templates") or {}
+    template_blocks = []
+    for name, text in templates.items():
+        if not text:
+            continue
+        template_blocks.append(f"<details><summary>{esc(name)}</summary><pre>{esc(text)}</pre></details>")
+    return (
+        f"<div class='guide-item'><h3>{esc(title)}</h3>"
+        f"<p>连接地址 <code>{esc(proxy.get('connect_host') or '-')}</code> · SNI <code>{esc(proxy.get('sni') or '-')}</code></p>"
+        f"{''.join(template_blocks) or '<p class=\"hint\">暂无规则模板</p>'}</div>"
+    )
+
+
+def remote_desktop_html(metadata):
+    remote = metadata.get("remote_desktop") or {}
+    proxy = metadata.get("proxy_bypass") or {}
+    tcp_proxy = metadata.get("tcp_proxy_bypass") or {}
+    if not remote and not proxy and not tcp_proxy:
+        return ""
+    device = remote.get("device") or {}
+    display_name = device.get("display_name") or device.get("name") or device.get("id") or "未配置设备"
+    wg_ip = device.get("wg_ip") or "-"
+    desktop_port = device.get("desktop_port") or ""
+    desktop_target = f"{wg_ip}:{desktop_port}" if desktop_port else wg_ip
+    desktop_protocol = device.get("desktop_protocol") or "-"
+    hysteria_path = remote.get("hysteria_config_path") or "hysteria-desktop.yaml"
+    wireguard_path = remote.get("wireguard_config_path") or "wireguard.conf"
+    remote_block = ""
+    if remote:
+        remote_block = f"""
+          <div class="setup-grid">
+            <div class="setup-item"><span class="section-kicker">设备</span><p><strong>{esc(display_name)}</strong></p></div>
+            <div class="setup-item"><span class="section-kicker">远程访问地址</span><p><code>{esc(desktop_target)}</code></p></div>
+            <div class="setup-item"><span class="section-kicker">桌面协议</span><p><code>{esc(desktop_protocol)}</code></p></div>
+            <div class="setup-item"><span class="section-kicker">配置文件</span><p><code>{esc(hysteria_path)}</code> + <code>{esc(wireguard_path)}</code></p></div>
+          </div>
+        """
+    proxy_blocks = "".join(
+        block
+        for block in (
+            proxy_bypass_html("远程访问代理兼容规则", proxy),
+            proxy_bypass_html("TCP / HTTPS 穿透代理兼容规则", tcp_proxy),
+        )
+        if block
+    )
+    return f"""
+        <section id="remote-access-section" class="remote-access-section panel">
+          <h2>远程访问</h2>
+          {remote_block or '<p class="hint">当前客户端没有远程访问设备配置。</p>'}
+          {f'<h2>代理兼容规则</h2><div class="guide-grid">{proxy_blocks}</div>' if proxy_blocks else ''}
+        </section>
+    """
+
+
 def render_dashboard(status):
     metadata = status.get("metadata") or {}
     runtime = status.get("runtime") or {}
@@ -1288,6 +1345,8 @@ def render_dashboard(status):
     recommended_interface = network.get("recommended_interface") or "-"
     reverse_address = network.get("reverse_address") or "-"
     bypass_interfaces = ", ".join(bypass.get("interfaces") or []) or "-"
+    remote_access = remote_desktop_html(metadata)
+    remote_metric = "已启用" if (metadata.get("remote_desktop") or {}) else "未启用"
     html_text = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -1349,6 +1408,7 @@ def render_dashboard(status):
       <nav class="nav-stack">
         <a class="nav-link active" href="#overview-section">概览</a>
         <a class="nav-link" href="#services-section">服务状态</a>
+        {('<a class="nav-link" href="#remote-access-section">远程访问</a>' if remote_access else '')}
         <a class="nav-link" href="#import-section">导入配置</a>
         <a class="nav-link" href="#instructions-section">使用说明</a>
         <a class="nav-link" href="#debug-section">日志/调试</a>
@@ -1377,7 +1437,7 @@ def render_dashboard(status):
 	            <div class="metric"><span>运行状态</span><strong>{esc(runtime_text)}</strong></div>
 	            <div class="metric"><span>Xray 配置</span><strong>{esc(config_text)}</strong></div>
 	            <div class="metric"><span>本地服务</span><strong>{service_count}</strong></div>
-	            <div class="metric"><span>代理兼容</span><strong>{esc(bypass_text)}</strong></div>
+	            <div class="metric"><span>远程访问</span><strong>{esc(remote_metric)}</strong></div>
 	          </div>
 	        </section>
 	        <section id="network-section" class="network-section panel">
@@ -1398,6 +1458,7 @@ def render_dashboard(status):
             <tbody>{''.join(rows) or '<tr><td colspan="5">暂无服务配置</td></tr>'}</tbody>
           </table>
         </section>
+        {remote_access}
         <section id="import-section" class="import-section panel">
           <h2>导入配置</h2>
           <p class="hint">选择 fake-ui 面板导出的 JSON，或配对 Agent 包里的配置文件。支持 <code>xray-bridge.json</code>、<code>bridge-dashboard.json</code>、<code>agent-profile.json</code>。</p>
@@ -1416,9 +1477,9 @@ def render_dashboard(status):
             <div class="guide-item">
               <h3>推荐方式：配对 Agent</h3>
               <ol>
-                <li>在 fake-ui 面板的“本地服务发布”里下载后端客户端。</li>
+                <li>在 fake-ui 面板的“本地客户端”里下载本地客户端。</li>
                 <li>解压后运行安装脚本，客户端会自动拉取配置。</li>
-                <li>打开本页确认“运行状态”和“本地服务”均正常。</li>
+                <li>打开本页确认“运行状态”“本地服务”和可选的“远程访问”均正常。</li>
               </ol>
             </div>
             <div class="guide-item">
@@ -1431,7 +1492,7 @@ def render_dashboard(status):
             </div>
             <div class="guide-item">
               <h3>常用命令</h3>
-              <p class="mono-line"><code>cd ~/.fake-ui/bridge-client-v3.0.2</code></p>
+              <p class="mono-line"><code>cd ~/.fake-ui/bridge-client-v3.0.1</code></p>
               <p class="mono-line"><code>bash open-dashboard.sh</code> 打开本页</p>
               <p class="mono-line"><code>bash start-bridge.sh</code> 启动 bridge</p>
               <p class="mono-line"><code>bash stop-bridge.sh</code> 停止 bridge</p>
@@ -1827,6 +1888,43 @@ def apply_local_network_bypass(config):
     return config
 
 
+def remote_desktop_metadata(remote_desktop, proxy_bypass):
+    if not isinstance(remote_desktop, dict):
+        return {}
+    device = remote_desktop.get("device") or {}
+    data = {
+        "device": device,
+        "topology": remote_desktop.get("topology") or {},
+        "proxy_bypass": remote_desktop.get("proxy_bypass") or proxy_bypass or {},
+        "hysteria_config_path": "hysteria-desktop.yaml",
+        "wireguard_config_path": "wireguard.conf",
+    }
+    return data
+
+
+def write_remote_desktop_files(result):
+    remote_desktop = result.get("remote_desktop") or {}
+    proxy_bypass = result.get("proxy_bypass") or {}
+    tcp_proxy_bypass = result.get("tcp_proxy_bypass") or {}
+    if not isinstance(remote_desktop, dict) or not remote_desktop:
+        if proxy_bypass:
+            write_json(BASE_DIR / "proxy-bypass.json", proxy_bypass)
+        if tcp_proxy_bypass:
+            write_json(BASE_DIR / "tcp-proxy-bypass.json", tcp_proxy_bypass)
+        return {}
+    hysteria_config = str(remote_desktop.get("hysteria_config") or "")
+    wireguard_config = str(remote_desktop.get("wireguard_config") or "")
+    if hysteria_config:
+        (BASE_DIR / "hysteria-desktop.yaml").write_text(hysteria_config, encoding="utf-8")
+    if wireguard_config:
+        (BASE_DIR / "wireguard.conf").write_text(wireguard_config, encoding="utf-8")
+    if proxy_bypass:
+        write_json(BASE_DIR / "proxy-bypass.json", proxy_bypass)
+    if tcp_proxy_bypass:
+        write_json(BASE_DIR / "tcp-proxy-bypass.json", tcp_proxy_bypass)
+    return remote_desktop_metadata(remote_desktop, proxy_bypass)
+
+
 def is_complete():
     required = ["xray-bridge.json", "bridge-dashboard.json", "agent-state.json"]
     return all((BASE_DIR / name).exists() for name in required)
@@ -1889,13 +1987,24 @@ def main():
     result = request_bootstrap(profile)
     if not result.get("ok"):
         raise SystemExit(f"bootstrap failed: {result.get('error') or 'unknown error'}")
+    remote_metadata = write_remote_desktop_files(result)
+    dashboard_metadata = result.get("dashboard_metadata") or {}
+    if remote_metadata:
+        dashboard_metadata["remote_desktop"] = remote_metadata
+    if result.get("proxy_bypass"):
+        dashboard_metadata["proxy_bypass"] = result.get("proxy_bypass")
+    if result.get("tcp_proxy_bypass"):
+        dashboard_metadata["tcp_proxy_bypass"] = result.get("tcp_proxy_bypass")
     write_json(BASE_DIR / "xray-bridge.json", apply_local_network_bypass(result.get("xray_config") or {}))
-    write_json(BASE_DIR / "bridge-dashboard.json", result.get("dashboard_metadata") or {})
+    write_json(BASE_DIR / "bridge-dashboard.json", dashboard_metadata)
     write_json(
         BASE_DIR / "agent-state.json",
         {
             "agent": result.get("agent") or {},
             "install": result.get("install") or {},
+            "remote_desktop": remote_metadata,
+            "proxy_bypass": result.get("proxy_bypass") or {},
+            "tcp_proxy_bypass": result.get("tcp_proxy_bypass") or {},
             "bridge_id": profile.get("bridge_id"),
             "bundle_kind": profile.get("bundle_kind"),
             "platform": profile.get("platform"),

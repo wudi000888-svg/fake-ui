@@ -60,6 +60,12 @@ MODULES_TO_RELOAD = [
     "hy2_config_builder",
     "hy2_runtime",
     "hy2_status_service",
+    "proxy_bypass",
+    "desktop_catalog",
+    "desktop_config_builder",
+    "desktop_bundle",
+    "desktop_runtime",
+    "api_desktop_routes",
     "tunnel_config_builder",
     "tunnel_catalog",
     "tunnel_domains",
@@ -171,7 +177,8 @@ def test_admin_app_shell_includes_tunnel_nav(app_modules):
     status, payload = api.handle_get("/api/app-shell", admin_session(app_modules))
 
     assert status == 200
-    assert {"id": "tunnels", "label": "本地服务发布", "icon": "⇄"} in payload["nav"]
+    assert {"id": "tunnels", "label": "本地客户端", "icon": "⇄"} in payload["nav"]
+    assert {"id": "remote-desktop", "label": "远程访问", "icon": "▣"} in payload["nav"]
 
 
 def test_public_registration_is_disabled_by_default(app_modules):
@@ -640,13 +647,13 @@ def test_node_add_disable_delete_flow(app_modules, monkeypatch):
     api = app_modules["api"]
     node_catalog = app_modules["node_catalog"]
 
-    monkeypatch.setattr(app_modules["operations_service"], "apply_node_exit_info", lambda node: {**node, "exit_ip": "203.0.113.9", "country_code": "TS"})
+    monkeypatch.setattr(app_modules["operations_service"], "apply_node_exit_info", lambda node: {**node, "exit_ip": "203.0.213.9", "country_code": "TS"})
 
     status, payload = api.handle_post("/api/nodes/add-vless", {}, admin_session(app_modules))
     assert status == 200
     node_id = payload["node"]["id"]
     assert node_id.startswith("vless-auto-")
-    assert payload["node"]["display_name"] == "TS - 203.0.113.9"
+    assert payload["node"]["display_name"] == "TS - 203.0.213.9"
 
     status, payload = api.handle_post("/api/nodes/action", {"id": node_id, "action": "disable"}, admin_session(app_modules))
     assert status == 200
@@ -854,16 +861,16 @@ def test_tunnel_api_exposes_only_resolved_non_reserved_domain_options(app_module
     monkeypatch.setenv("PANEL_DOMAIN", "panel.example.test")
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://panel.example.test")
     monkeypatch.setenv("TUNNEL_DOMAIN_CANDIDATES", "ready.example.test,panel.example.test,node.example.test,wrong.example.test")
-    monkeypatch.setenv("TUNNEL_SERVER_IPS", "203.0.113.10")
+    monkeypatch.setenv("TUNNEL_SERVER_IPS", "203.0.213.10")
     monkeypatch.setattr(
         app_modules["api_tunnel_routes"].link_settings,
         "read",
         lambda: {"vless_address": "node.example.test", "vless_port": 443},
     )
     monkeypatch.setattr(domains, "resolve_ips", lambda domain: {
-        "ready.example.test": ["203.0.113.10"],
-        "panel.example.test": ["203.0.113.10"],
-        "node.example.test": ["203.0.113.10"],
+        "ready.example.test": ["203.0.213.10"],
+        "panel.example.test": ["203.0.213.10"],
+        "node.example.test": ["203.0.213.10"],
         "wrong.example.test": ["198.51.100.99"],
     }.get(domain, []))
 
@@ -881,7 +888,7 @@ def test_tunnel_save_rejects_public_domain_not_resolved_to_server(app_modules, m
     api = app_modules["api"]
     domains = app_modules["tunnel_domains"]
 
-    monkeypatch.setenv("TUNNEL_SERVER_IPS", "203.0.113.10")
+    monkeypatch.setenv("TUNNEL_SERVER_IPS", "203.0.213.10")
     monkeypatch.setattr(domains, "resolve_ips", lambda domain: ["198.51.100.99"])
     monkeypatch.setattr(
         app_modules["api_tunnel_routes"].xray_runtime,
@@ -924,13 +931,13 @@ def test_tunnel_save_rejects_panel_or_proxy_node_domain(app_modules, monkeypatch
 
     monkeypatch.setenv("PANEL_DOMAIN", "panel.example.test")
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://panel.example.test")
-    monkeypatch.setenv("TUNNEL_SERVER_IPS", "203.0.113.10")
+    monkeypatch.setenv("TUNNEL_SERVER_IPS", "203.0.213.10")
     monkeypatch.setattr(
         app_modules["api_tunnel_routes"].link_settings,
         "read",
         lambda: {"vless_address": "node.example.test", "vless_port": 443},
     )
-    monkeypatch.setattr(domains, "resolve_ips", lambda domain: ["203.0.113.10"])
+    monkeypatch.setattr(domains, "resolve_ips", lambda domain: ["203.0.213.10"])
 
     for public_domain, reason in [
         ("panel.example.test", "reserved for the panel"),
@@ -950,8 +957,8 @@ def test_tunnel_save_rejects_hy2_domain(app_modules, monkeypatch):
     domains = app_modules["tunnel_domains"]
 
     monkeypatch.setenv("HY2_DOMAIN", "hy.example.test")
-    monkeypatch.setenv("TUNNEL_SERVER_IPS", "203.0.113.10")
-    monkeypatch.setattr(domains, "resolve_ips", lambda domain: ["203.0.113.10"])
+    monkeypatch.setenv("TUNNEL_SERVER_IPS", "203.0.213.10")
+    monkeypatch.setattr(domains, "resolve_ips", lambda domain: ["203.0.213.10"])
     monkeypatch.setattr(
         app_modules["api_tunnel_routes"].xray_runtime,
         "load_config",
@@ -1725,7 +1732,7 @@ def test_hy2_apply_and_disable_refresh_node_payload(app_modules, monkeypatch):
 
     def fake_exit_info(node):
         updated = dict(node)
-        updated.update({"exit_ip": "203.0.113.88", "country_code": "SG", "country": "Singapore", "name": "SG - 203.0.113.88"})
+        updated.update({"exit_ip": "203.0.213.88", "country_code": "SG", "country": "Singapore", "name": "SG - 203.0.213.88"})
         return updated
 
     monkeypatch.setattr(app_modules["operations_service"], "apply_node_exit_info", fake_exit_info)
@@ -1737,7 +1744,7 @@ def test_hy2_apply_and_disable_refresh_node_payload(app_modules, monkeypatch):
     )
     assert status == 200
     assert payload["node"]["id"] == "hy2-main"
-    assert payload["node"]["display_name"] == "SG - 203.0.113.88"
+    assert payload["node"]["display_name"] == "SG - 203.0.213.88"
 
     status, payload = api.handle_post("/api/hy2/disable", {}, admin_session(app_modules))
     assert status == 200
@@ -1785,7 +1792,7 @@ def test_hy2_status_parses_http_and_socks5_proxy_endpoint(app_modules, tmp_path,
                 "  - name: socks5-proxy",
                 "    type: socks5",
                 "    socks5:",
-                "      addr: 203.0.113.20:1080",
+                "      addr: 203.0.213.20:1080",
                 "      username: alice",
                 "      password: secret-pass",
             ]
@@ -1794,13 +1801,13 @@ def test_hy2_status_parses_http_and_socks5_proxy_endpoint(app_modules, tmp_path,
     )
     assert hy2_status_service.outbound_mode() == "socks5"
     assert hy2_status_service.proxy_endpoint() == {
-        "addr": "203.0.113.20",
+        "addr": "203.0.213.20",
         "port": 1080,
         "user": "alice",
         "password": "secret-pass",
         "type": "socks5",
     }
-    assert hy2_status_service.status()["proxy"] == "socks5://alice:secret-pass@203.0.113.20:1080"
+    assert hy2_status_service.status()["proxy"] == "socks5://alice:secret-pass@203.0.213.20:1080"
 
 
 def test_hy2_exit_refresh_preserves_proxy_mode(app_modules, monkeypatch):
@@ -1815,13 +1822,13 @@ def test_hy2_exit_refresh_preserves_proxy_mode(app_modules, monkeypatch):
     monkeypatch.setattr(
         node_exit_service.geo_utils,
         "proxy_exit_info",
-        lambda addr, port, user, password, proxy_type: {"ip": "203.0.113.9", "country_code": "US", "country": "United States"},
+        lambda addr, port, user, password, proxy_type: {"ip": "203.0.213.9", "country_code": "US", "country": "United States"},
     )
 
     node = node_exit_service.apply_node_exit_info({"id": "hy2-main", "name": "Hysteria2", "kind": "hy2"})
 
     assert node["outbound_mode"] == "socks5"
-    assert node["exit_ip"] == "203.0.113.9"
+    assert node["exit_ip"] == "203.0.213.9"
     assert node["country_code"] == "US"
 
 
@@ -1881,7 +1888,7 @@ def test_legacy_session_without_csrf_is_rejected(app_modules):
 def test_login_rate_limit_tracks_failures(app_modules):
     import security
 
-    key = "203.0.113.9:admin"
+    key = "203.0.213.9:admin"
     security.clear_login_failures(key)
     for _ in range(security.LOGIN_MAX_ATTEMPTS):
         assert security.login_limited(key, now=1000) is False
@@ -1970,7 +1977,7 @@ def test_http_api_public_register_ignores_stale_session_csrf(app_modules, monkey
     class FakeHandler:
         path = "/api/register"
         headers = {"Content-Type": "application/json"}
-        client_address = ("203.0.113.9", 12345)
+        client_address = ("203.0.213.9", 12345)
 
         def current_session(self):
             return {"u": "olduser", "r": "user", "role": "user", "csrf": "old-csrf"}

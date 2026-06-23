@@ -1,12 +1,12 @@
-import { api, post } from "../api.js?v=3.0.2";
-import { formData } from "../dom.js?v=3.0.2";
-import { navigate } from "../router.js?v=3.0.2";
-import { state, setNotice } from "../state.js?v=3.0.2";
-import { setFilter } from "./forms.js?v=3.0.2";
-import { handleAdminAction, handleAdminForm } from "./admin.js?v=3.0.2";
-import { handleOrderAction, handleOrderForm } from "./orders.js?v=3.0.2";
-import { handlePaymentAction, handlePaymentForm } from "./payments.js?v=3.0.2";
-import { handleUserNodeAction, handleUserNodeForm } from "./users_nodes.js?v=3.0.2";
+import { api, post } from "../api.js?v=3.1.0";
+import { formData } from "../dom.js?v=3.1.0";
+import { navigate } from "../router.js?v=3.1.0";
+import { state, setNotice } from "../state.js?v=3.1.0";
+import { setFilter } from "./forms.js?v=3.1.0";
+import { handleAdminAction, handleAdminForm } from "./admin.js?v=3.1.0";
+import { handleOrderAction, handleOrderForm } from "./orders.js?v=3.1.0";
+import { handlePaymentAction, handlePaymentForm } from "./payments.js?v=3.1.0";
+import { handleUserNodeAction, handleUserNodeForm } from "./users_nodes.js?v=3.1.0";
 
 
 export function bindAppActions(app, { refresh, render, loadAuthenticatedApp }) {
@@ -130,6 +130,11 @@ export function bindAppActions(app, { refresh, render, loadAuthenticatedApp }) {
       }
       if (button.dataset.action === "tunnels-filter") {
         setFilter(app, state, "tunnels");
+        await render();
+        return;
+      }
+      if (button.dataset.action === "desktops-filter") {
+        setFilter(app, state, "desktops");
         await render();
         return;
       }

@@ -1,4 +1,4 @@
-import { esc } from "../../components/layout.js?v=3.0.2";
+import { esc } from "../../components/layout.js?v=3.1.0";
 
 
 function matchesTunnel(tunnel, query) {
@@ -31,7 +31,7 @@ function agentKey(tunnel) {
 
 
 function serviceCountLabel(count) {
-  return `${count} 个已发布服务`;
+  return `${count} 个服务映射`;
 }
 
 
@@ -42,7 +42,7 @@ function agentGroups(tunnels) {
       kind: "shared",
       id: tunnel.bridge_id || "default",
       title: tunnel.bridge_id || "default",
-      label: "共享后端客户端",
+      label: "共享本地客户端",
       services,
     });
   }
@@ -51,7 +51,7 @@ function agentGroups(tunnels) {
       kind: "dedicated",
       id: tunnel.id,
       title: tunnel.display_name || tunnel.name || tunnel.id,
-      label: "独立后端客户端",
+      label: "独立本地客户端",
       services: [tunnel],
     });
   }
@@ -77,7 +77,7 @@ function domainStatusCard(domainOptions = {}) {
   return `
     <div class="tunnel-domain-status" data-domain-options>
       <strong>可用域名：${available.length}</strong>
-      <span>${available.length ? "只显示已解析到本服务器且未被面板/节点占用的域名。" : "先把子域名 A/AAAA 解析到本 VPS，再刷新页面。"}</span>
+      <span>${available.length ? "只显示已解析到本服务器且未被面板/节点/远程访问入口占用的域名。" : "先把子域名 A/AAAA 解析到海外 VPS，再刷新页面。"}</span>
       ${hidden ? `<small>已隐藏：${esc(hidden)}</small>` : ""}
     </div>
   `;
@@ -88,7 +88,7 @@ function domainReasonLabel(reason) {
   return {
     reserved_panel_domain: "面板域名",
     reserved_node_domain: "普通节点域名",
-    already_used_by_tunnel: "已被穿透使用",
+    already_used_by_tunnel: "已被远程访问入口使用",
     not_resolved_to_server: "未解析到本服务器",
     invalid_domain: "域名无效",
   }[reason] || "不可用";
@@ -117,10 +117,10 @@ function sharedAgentCards(tunnels) {
     return `
       <article class="admin-card tunnel-agent-card">
         <div>
-          <strong>共享后端客户端：${esc(bridgeId)}</strong>
-          <span>${esc(platformLabel(platform))} · ${serviceCountLabel(services.length)} · 一个后端客户端可以承载多个服务</span>
+          <strong>共享本地客户端：${esc(bridgeId)}</strong>
+          <span>${esc(platformLabel(platform))} · ${serviceCountLabel(services.length)} · 一个本地客户端可以承载多个服务</span>
         </div>
-        <p>安装一次后，${esc(serviceNames(services) || "这些服务")} 都会通过这个客户端回连 VPS。新增同一 Bridge ID 的服务时，通常不需要重新安装客户端。</p>
+        <p>安装一次后，${esc(serviceNames(services) || "这些服务")} 都会通过这个客户端回连 VPS。新增同一 客户端组 ID 的服务时，通常不需要重新安装客户端。</p>
         <div class="admin-actions">
           <button class="secondary" data-action="tunnel-shared-agent-config-export" data-bridge="${esc(bridgeId)}" type="button">导出总 JSON</button>
           <button class="primary" data-action="tunnel-shared-agent-bundle-export" data-bridge="${esc(bridgeId)}" type="button">下载通用安装包</button>
@@ -136,10 +136,10 @@ function dedicatedAgentCards(tunnels) {
     return `
       <article class="admin-card tunnel-agent-card">
         <div>
-          <strong>独立后端客户端：${esc(tunnel.display_name || tunnel.name || tunnel.id)}</strong>
+          <strong>独立本地客户端：${esc(tunnel.display_name || tunnel.name || tunnel.id)}</strong>
           <span>只服务这一条映射</span>
         </div>
-        <p>适合 SSH、数据库或需要单独隔离的服务。下载一个配对安装包，在后端机器运行安装脚本即可自动拉取配置。</p>
+        <p>适合 SSH、数据库或需要单独隔离的服务。下载一个配对安装包，在本地机器运行安装脚本即可自动拉取配置。</p>
         <div class="admin-actions">
           <button class="secondary" data-action="tunnel-agent-config-export" data-tunnel="${esc(tunnel.id)}" type="button">导出总 JSON</button>
           <button class="primary" data-action="tunnel-agent-bundle-export" data-tunnel="${esc(tunnel.id)}" type="button">下载通用安装包</button>
@@ -158,15 +158,15 @@ function primaryAgentCard(groups) {
   return `
     <article class="admin-card tunnel-agent-card tunnel-primary-agent">
       <div>
-        <strong>推荐后端客户端：${esc(preferred.title)}</strong>
+        <strong>推荐本地客户端：${esc(preferred.title)}</strong>
         <span>${serviceCountLabel(preferred.services.length)} · 只下载一个通用安装包</span>
       </div>
       <p>这个包包含 macOS、Linux、Windows 三端脚本。客户下载这一份，解压后按自己的系统运行安装脚本；${esc(serviceText || "已选择的服务")} 会自动配对到本机客户端。</p>
-      ${isOnlyOne ? "" : `<p>检测到还有 ${groups.length - 1} 个高级分组。普通 Web 服务建议合并到同一个后端客户端；SSH、数据库或需要隔离时再单独下载。</p>`}
+      ${isOnlyOne ? "" : `<p>检测到还有 ${groups.length - 1} 个高级分组。普通 Web 服务建议合并到同一个本地客户端；SSH、数据库或需要隔离时再单独下载。</p>`}
       <div class="admin-actions">
         ${preferred.kind === "shared"
-          ? `<button class="secondary" data-action="tunnel-shared-agent-config-export" data-bridge="${esc(preferred.id)}" type="button">导出总 JSON</button><button class="primary" data-action="tunnel-universal-agent-bundle-export" data-agent-kind="shared" data-bridge="${esc(preferred.id)}" type="button">下载后端客户端</button>`
-          : `<button class="secondary" data-action="tunnel-agent-config-export" data-tunnel="${esc(preferred.id)}" type="button">导出总 JSON</button><button class="primary" data-action="tunnel-universal-agent-bundle-export" data-agent-kind="dedicated" data-tunnel="${esc(preferred.id)}" type="button">下载后端客户端</button>`
+          ? `<button class="secondary" data-action="tunnel-shared-agent-config-export" data-bridge="${esc(preferred.id)}" type="button">导出总 JSON</button><button class="primary" data-action="tunnel-universal-agent-bundle-export" data-agent-kind="shared" data-bridge="${esc(preferred.id)}" type="button">下载本地客户端</button>`
+          : `<button class="secondary" data-action="tunnel-agent-config-export" data-tunnel="${esc(preferred.id)}" type="button">导出总 JSON</button><button class="primary" data-action="tunnel-universal-agent-bundle-export" data-agent-kind="dedicated" data-tunnel="${esc(preferred.id)}" type="button">下载本地客户端</button>`
         }
       </div>
     </article>
@@ -175,7 +175,7 @@ function primaryAgentCard(groups) {
 
 
 function serviceCard(tunnel) {
-  const bridgeMode = tunnel.bridge_mode === "shared" ? `共享 Agent ${tunnel.bridge_id || "default"}` : "独立 Agent";
+  const bridgeMode = tunnel.bridge_mode === "shared" ? `共享客户端 ${tunnel.bridge_id || "default"}` : "独立客户端";
   const status = tunnel.enabled === false ? "停用" : "在线";
   const isPrivateTcp = tunnel.kind === "private_tcp";
   const domainLabel = isPrivateTcp ? "TCP 无需域名" : (tunnel.public_domain || "未配置域名");
@@ -209,7 +209,7 @@ function tutorialCard() {
       <div class="tunnel-steps">
         <div class="tunnel-step">
           <b>1</b>
-          <div><strong>下载安装包</strong><p>先在“推荐后端客户端”区域下载一个通用安装包。包内包含 macOS、Linux、Windows 三端脚本，同一台机器后续可以挂多个服务。</p></div>
+          <div><strong>下载安装包</strong><p>先在“推荐本地客户端”区域下载一个通用安装包。包内包含 macOS、Linux、Windows 三端脚本，同一台机器后续可以挂多个服务。</p></div>
         </div>
         <div class="tunnel-step">
           <b>2</b>
@@ -240,7 +240,7 @@ function tutorialCard() {
           <p>安装完成后运行 <code>open-dashboard.ps1</code> 打开本地控制台。</p>
         </div>
       </div>
-      <p>理解方式：把本地端口发布为海外 HTTPS 域名。域名解析到 VPS，VPS 负责 HTTPS/Reality 入口；后端客户端主动连回 VPS。客户机器没有公网 IP 也可以提供服务。</p>
+      <p>理解方式：把本地端口发布为海外 HTTPS 域名、私有 TCP 或 SSH 入口。域名解析到 VPS，VPS 负责入口；本地客户端主动连回 VPS。客户机器没有公网 IP 也可以提供服务。</p>
     </article>
   `;
 }
@@ -265,7 +265,7 @@ export function renderAdminTunnels(data = {}) {
   return `
     <section class="screen stack">
       <div class="screen-head">
-        <div><h1>本地服务发布</h1><p>把中国本地端口发布为海外 HTTPS 域名、私有 TCP 或 SSH 入口。</p></div>
+        <div><h1>本地客户端</h1><p>下载本地客户端，把本地端口发布为海外 HTTPS 域名、私有 TCP 或 SSH 入口。</p></div>
         <div class="admin-actions">
           <button class="secondary" data-action="tunnel-portal-export" type="button">导出 VPS 配置</button>
           <button class="secondary" data-action="tunnel-portal-apply" type="button">应用到 VPS</button>
@@ -274,7 +274,7 @@ export function renderAdminTunnels(data = {}) {
       </div>
       ${tutorialCard()}
       <article class="admin-card tunnel-edit-form" hidden>
-        <div><strong>编辑发布服务</strong><span>填写访问方式、后端系统和本地服务端口，其余参数会自动生成。</span></div>
+        <div><strong>编辑本地服务入口</strong><span>填写访问方式、本地系统和本地服务端口，其余参数会自动生成。</span></div>
         <form class="form-grid compact-form" data-form="tunnel-save">
           <label>类型<select name="kind"><option value="public_https">公开 HTTPS 服务</option><option value="private_tcp">私有 TCP 服务</option></select></label>
           <label>公网域名<input name="public_domain" list="tunnel-domain-options" autocomplete="off" placeholder="app.example.com"><datalist id="tunnel-domain-options">${domainOptionsMarkup(domainOptions)}</datalist></label>
@@ -286,9 +286,9 @@ export function renderAdminTunnels(data = {}) {
           <label>入口端口<input name="portal_port" inputmode="numeric" placeholder="留空自动分配"></label>
           <label>VLESS UUID<input name="client_id" autocomplete="off" placeholder="留空自动生成"></label>
           <label>Reality SNI<input name="reality_sni" value="www.cloudflare.com"></label>
-          <label>Bridge 模式<select name="bridge_mode"><option value="dedicated">默认独立 Agent</option><option value="shared">高级共享 Agent</option></select></label>
-          <label>Bridge ID<input name="bridge_id" autocomplete="off" placeholder="office-web"></label>
-          <label>后端系统<select name="bridge_platform"><option value="macos">macOS</option><option value="linux">Linux</option><option value="windows">Windows</option></select></label>
+          <label>客户端模式<select name="bridge_mode"><option value="dedicated">默认独立客户端</option><option value="shared">高级共享客户端</option></select></label>
+          <label>客户端组 ID<input name="bridge_id" autocomplete="off" placeholder="office-web"></label>
+          <label>本地系统<select name="bridge_platform"><option value="macos">macOS</option><option value="linux">Linux</option><option value="windows">Windows</option></select></label>
           <div class="form-actions">
             <button class="primary" type="submit">保存服务</button>
             <button class="secondary" data-action="tunnel-form-close" type="button">收起</button>
@@ -296,21 +296,21 @@ export function renderAdminTunnels(data = {}) {
         </form>
         ${domainStatusCard(domainOptions)}
       </article>
-      <div class="toolbar"><input data-filter="tunnels" value="${esc(query)}" placeholder="搜索已发布服务、访问入口或本地端口"><button data-action="tunnels-filter" type="button">筛选</button></div>
+      <div class="toolbar"><input data-filter="tunnels" value="${esc(query)}" placeholder="搜索远程访问入口、域名或本地端口"><button data-action="tunnels-filter" type="button">筛选</button></div>
       <section class="tunnel-section stack">
-        <div class="section-title"><h2>后端客户端</h2><p>每台后端机器下载一个配对安装包即可；共享 Agent 下多个服务会自动合并到同一个客户端。</p></div>
-        <div class="card-list compact">${primaryAgentCard(groups) || `<article class="admin-card empty"><p>${tunnels.length ? "没有匹配的后端客户端" : "暂无后端客户端，先新增要发布的本地服务"}</p><button data-action="tunnel-create-sheet" type="button">新增服务</button></article>`}</div>
+        <div class="section-title"><h2>本地客户端</h2><p>每台本地机器下载一个配对安装包即可；共享客户端下多个服务会自动合并到同一个客户端。</p></div>
+        <div class="card-list compact">${primaryAgentCard(groups) || `<article class="admin-card empty"><p>${tunnels.length ? "没有匹配的本地客户端" : "暂无本地客户端，先新增要发布的本地服务"}</p><button data-action="tunnel-create-sheet" type="button">新增服务</button></article>`}</div>
         ${agentCards ? `
           <details class="tunnel-agent-advanced">
-            <summary>高级：查看后端客户端分组（${groups.length}）</summary>
-            <p>只有多台后端机器、SSH 独立隔离或排障时才需要看这里。普通客户下载上面的推荐安装包即可。</p>
+            <summary>高级：查看本地客户端分组（${groups.length}）</summary>
+            <p>只有多台本地机器、SSH 独立隔离或排障时才需要看这里。普通客户下载上面的推荐安装包即可。</p>
             <div class="card-list compact">${agentCards}</div>
           </details>
         ` : ""}
       </section>
       <section class="tunnel-section stack">
-        <div class="section-title"><h2>已发布服务</h2><p>这里管理公网域名、VPS 入口端口和客户机器上的本地端口。下载客户端请到上面的“后端客户端”。</p></div>
-        <div class="card-list">${activeServices || `<article class="admin-card empty"><p>${tunnels.length ? "没有匹配的在线服务" : "暂无已发布服务"}</p><button data-action="tunnel-create-sheet" type="button">新增服务</button></article>`}</div>
+        <div class="section-title"><h2>远程访问入口</h2><p>这里管理公网域名、VPS 入口端口和客户机器上的本地端口。下载客户端请到上面的“本地客户端”。</p></div>
+        <div class="card-list">${activeServices || `<article class="admin-card empty"><p>${tunnels.length ? "没有匹配的在线服务" : "暂无远程访问入口"}</p><button data-action="tunnel-create-sheet" type="button">新增服务</button></article>`}</div>
       </section>
       ${visibleDisabledTunnels.length ? `
         <details class="tunnel-disabled-section">

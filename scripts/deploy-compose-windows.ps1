@@ -123,7 +123,7 @@ from pathlib import Path
 
 path = Path(".env")
 wanted = {
-    "FAKE_UI_VERSION": "3.0.2",
+    "FAKE_UI_VERSION": "3.1.0",
     "FAKE_UI_DB": "/data/panel/fake-ui.db",
 }
 lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []

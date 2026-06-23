@@ -27,7 +27,7 @@ def test_package_code_excludes_runtime_data_and_macos_pax_headers(tmp_path):
     assert "baseline/app_version.py" in names
     assert "scripts/package-bridge-client.py" in names
     assert "docs/releases/v3.0.0.md" in names
-    assert "docs/releases/v3.0.2.md" in names
+    assert "docs/releases/v3.1.0.md" in names
     assert not any(name == ".env" or name.startswith("data/") for name in names)
     assert not any(name.startswith("generated/") or name.startswith(".git/") for name in names)
     assert not any(name.startswith("artifacts/") or name.startswith(".demo-runtime/") for name in names)
@@ -86,16 +86,16 @@ def test_package_bridge_client_builds_separate_generic_release_assets(tmp_path):
     output_dir = tmp_path / "bridge-client"
 
     subprocess.run(
-        ["python3", "scripts/package-bridge-client.py", str(output_dir), "--version", "3.0.2"],
+        ["python3", "scripts/package-bridge-client.py", str(output_dir), "--version", "3.1.0"],
         cwd=ROOT,
         check=True,
         text=True,
         capture_output=True,
     )
 
-    macos = output_dir / "fake-ui-bridge-client-v3.0.2-macos.zip"
-    linux = output_dir / "fake-ui-bridge-client-v3.0.2-linux.tar.gz"
-    windows = output_dir / "fake-ui-bridge-client-v3.0.2-windows.zip"
+    macos = output_dir / "fake-ui-bridge-client-v3.1.0-macos.zip"
+    linux = output_dir / "fake-ui-bridge-client-v3.1.0-linux.tar.gz"
+    windows = output_dir / "fake-ui-bridge-client-v3.1.0-windows.zip"
     assert macos.exists()
     assert linux.exists()
     assert windows.exists()
@@ -104,6 +104,7 @@ def test_package_bridge_client_builds_separate_generic_release_assets(tmp_path):
         names = set(archive.namelist())
         readme = archive.read("fake-ui-bridge-client/README.md").decode("utf-8")
         metadata = archive.read("fake-ui-bridge-client/bridge-dashboard.json").decode("utf-8")
+        macos_start = archive.read("fake-ui-bridge-client/start-bridge.sh").decode("utf-8")
 
     assert "fake-ui-bridge-client/bridge-dashboard.py" in names
     assert "fake-ui-bridge-client/open-dashboard.sh" in names
@@ -113,22 +114,27 @@ def test_package_bridge_client_builds_separate_generic_release_assets(tmp_path):
     assert "127.0.0.1:19090" in readme
     assert "从 fake-ui 面板导入" in readme
     assert "client-template" in metadata
+    assert "run -test" not in macos_start
 
     with tarfile.open(linux, "r:gz") as archive:
         linux_names = set(archive.getnames())
+        linux_start = archive.extractfile("fake-ui-bridge-client/start-bridge.sh").read().decode("utf-8")
     assert "fake-ui-bridge-client/bridge-dashboard.py" in linux_names
     assert "fake-ui-bridge-client/start-bridge.sh" in linux_names
+    assert "run -test" not in linux_start
 
     with zipfile.ZipFile(windows) as archive:
         windows_names = set(archive.namelist())
         windows_readme = archive.read("fake-ui-bridge-client/README.md").decode("utf-8")
+        windows_start = archive.read("fake-ui-bridge-client/start-bridge.ps1").decode("utf-8")
     assert "fake-ui-bridge-client/open-dashboard.ps1" in windows_names
     assert "fake-ui-bridge-client/start-bridge.ps1" in windows_names
     assert "fake-ui-bridge-client/stop-bridge.ps1" in windows_names
     assert "PowerShell" in windows_readme
+    assert "run -test" not in windows_start
 
     for archive in [macos, linux, windows]:
         raw = archive.read_bytes()
         assert b"guangyuego" not in raw
-        assert b"43.134.13.43" not in raw
+        assert b"203.0.113.43" not in raw
         assert b"server-private-key" not in raw

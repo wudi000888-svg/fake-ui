@@ -14,7 +14,7 @@ RUN set -eux; \
       echo "$repo"; \
     done >/etc/apk/repositories; \
     for i in 1 2 3 4 5; do \
-      apk add --no-cache ca-certificates curl docker-cli tzdata util-linux && break; \
+      apk add --no-cache ca-certificates curl docker-cli iproute2 tzdata util-linux wireguard-tools && break; \
       if [ "$i" = "5" ]; then exit 1; fi; \
       sleep 3; \
     done; \

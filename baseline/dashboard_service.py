@@ -10,6 +10,8 @@ import email_settings
 import hy2_panel
 import links
 import node_catalog
+import desktop_catalog
+import desktop_config_builder
 import orders_store
 import payments_store
 import plans_store
@@ -203,6 +205,9 @@ def dashboard(session):
                 "payment_rates": payments_store.load_rates(),
                 "nodes": node_catalog.list_public_nodes(admin=True),
                 "tunnels": tunnel_catalog.list_public_tunnels(),
+                "desktops": desktop_catalog.list_devices(),
+                "desktop_network": desktop_catalog.get_network(),
+                "desktop_topology": desktop_config_builder.topology(),
                 "domain_options": api_tunnel_routes.current_domain_options(),
                 "audit": audit_log.tail(80),
                 "backups": backup_manager.list_backups(20),

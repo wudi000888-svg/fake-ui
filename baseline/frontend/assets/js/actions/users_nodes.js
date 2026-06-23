@@ -1,7 +1,7 @@
-import { api, download, downloadText, post } from "../api.js?v=3.0.2";
-import { openForm } from "../dom.js?v=3.0.2";
-import { state } from "../state.js?v=3.0.2";
-import { closeForms, fillNodeForm, fillTunnelForm, fillUserForm } from "./forms.js?v=3.0.2";
+import { api, download, downloadText, post } from "../api.js?v=3.1.0";
+import { openForm } from "../dom.js?v=3.1.0";
+import { state } from "../state.js?v=3.1.0";
+import { closeForms, fillNodeForm, fillTunnelForm, fillUserForm } from "./forms.js?v=3.1.0";
 
 
 export function applyNodePayload(out) {
@@ -173,12 +173,12 @@ export async function handleUserNodeAction(button, app, { runAction }) {
   }
   if (actionName === "tunnel-action") {
     const action = button.dataset.tunnelAction || "";
-    if (action === "delete" && !confirm(`确认删除已发布服务 ${button.dataset.tunnel || ""}？`)) return true;
+    if (action === "delete" && !confirm(`确认删除远程访问入口 ${button.dataset.tunnel || ""}？`)) return true;
     await runAction(async () => {
       const out = await post("/api/tunnels/action", { id: button.dataset.tunnel || "", action });
       applyTunnelPayload(out);
-      if (action === "delete") return "已发布服务已删除";
-      return "已发布服务已更新";
+      if (action === "delete") return "远程访问入口已删除";
+      return "远程访问入口已更新";
     });
     return true;
   }
@@ -215,7 +215,7 @@ export async function handleUserNodeForm(form, data, { runAction }) {
     await runAction(async () => {
       const out = await post("/api/tunnels/save", data);
       applyTunnelPayload(out);
-      return "已发布服务已保存";
+      return "本地服务入口已保存";
     });
     return true;
   }

@@ -386,6 +386,15 @@ install_native_nginx() {
   systemctl enable --now nginx
 }
 
+install_wireguard_tools() {
+  if command -v wg >/dev/null 2>&1 && command -v wg-quick >/dev/null 2>&1; then
+    return
+  fi
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y wireguard-tools
+}
+
 write_env() {
   cat >.env <<EOF
 ROOT_DOMAIN=$ROOT_DOMAIN
@@ -410,7 +419,7 @@ PANEL_IMAGE=xray-proxy-panel:local
 HYSTERIA_IMAGE=tobyxdd/hysteria:v2.9.2
 NGINX_IMAGE=nginx:1.27-alpine
 CERTBOT_IMAGE=certbot/certbot:v5.2.2
-FAKE_UI_VERSION=3.0.2
+FAKE_UI_VERSION=3.1.0
 FAKE_UI_HOST_COMMAND_MODE=$([[ "$DEPLOY_MODE" == "native-nginx" ]] && echo docker-nsenter || true)
 FAKE_UI_DB=/data/panel/fake-ui.db
 EOF
@@ -1121,6 +1130,7 @@ fi
 enable_bbr
 configure_docker_dns
 install_docker
+install_wireguard_tools
 configure_docker_dns
 write_env
 init_dirs

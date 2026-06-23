@@ -1,5 +1,5 @@
-import { esc } from "../../components/layout.js?v=3.0.2";
-import { stat } from "../../components/ui.js?v=3.0.2";
+import { esc } from "../../components/layout.js?v=3.1.0";
+import { stat } from "../../components/ui.js?v=3.1.0";
 
 
 export function renderAdminDashboard(data = {}) {

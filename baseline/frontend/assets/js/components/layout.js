@@ -1,5 +1,5 @@
-import { state } from "../state.js?v=3.0.2";
-import { navigate } from "../router.js?v=3.0.2";
+import { state } from "../state.js?v=3.1.0";
+import { navigate } from "../router.js?v=3.1.0";
 
 const SIDEBAR_COLLAPSED_KEY = "fake-ui-side-nav-collapsed";
 
@@ -102,7 +102,7 @@ export function layout(content) {
   const secondary = secondaryItems.map(navButton).join("");
   const username = state.shell?.username || state.session?.username || "";
   const role = state.shell?.role === "admin" ? "管理员" : "用户";
-  const version = state.shell?.version || "3.0.2";
+  const version = state.shell?.version || "3.1.0";
   const sidebarCollapsed = isSidebarCollapsed();
   return `
     <div class="app-shell-v2 ${sidebarCollapsed ? "side-nav-collapsed" : ""}">
@@ -114,7 +114,7 @@ export function layout(content) {
             <strong>fake-ui</strong>
             <span class="version-chip">v${esc(version)}</span>
           </div>
-          <span>单机多出口代理编排系统</span>
+          <span>本地客户端 / 远程访问控制台</span>
         </div>
         <div class="side-nav-scroll">
           <div class="nav-stack">${nav}</div>
