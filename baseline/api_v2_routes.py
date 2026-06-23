@@ -22,7 +22,7 @@ ADMIN_NAV = [
     {"id": "users", "label": "用户管理", "icon": "◉"},
     {"id": "orders", "label": "订单管理", "icon": "≡"},
     {"id": "nodes", "label": "节点管理", "icon": "◇"},
-    {"id": "tunnels", "label": "内网穿透", "icon": "⇄"},
+    {"id": "tunnels", "label": "本地服务发布", "icon": "⇄"},
     {"id": "settings", "label": "系统设置", "icon": "⚙"},
 ]
 

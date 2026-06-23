@@ -27,7 +27,7 @@ def test_package_code_excludes_runtime_data_and_macos_pax_headers(tmp_path):
     assert "baseline/app_version.py" in names
     assert "scripts/package-bridge-client.py" in names
     assert "docs/releases/v3.0.0.md" in names
-    assert "docs/releases/v3.0.1.md" in names
+    assert "docs/releases/v3.0.2.md" in names
     assert not any(name == ".env" or name.startswith("data/") for name in names)
     assert not any(name.startswith("generated/") or name.startswith(".git/") for name in names)
     assert not any(name.startswith("artifacts/") or name.startswith(".demo-runtime/") for name in names)
@@ -86,16 +86,16 @@ def test_package_bridge_client_builds_separate_generic_release_assets(tmp_path):
     output_dir = tmp_path / "bridge-client"
 
     subprocess.run(
-        ["python3", "scripts/package-bridge-client.py", str(output_dir), "--version", "3.0.1"],
+        ["python3", "scripts/package-bridge-client.py", str(output_dir), "--version", "3.0.2"],
         cwd=ROOT,
         check=True,
         text=True,
         capture_output=True,
     )
 
-    macos = output_dir / "fake-ui-bridge-client-v3.0.1-macos.zip"
-    linux = output_dir / "fake-ui-bridge-client-v3.0.1-linux.tar.gz"
-    windows = output_dir / "fake-ui-bridge-client-v3.0.1-windows.zip"
+    macos = output_dir / "fake-ui-bridge-client-v3.0.2-macos.zip"
+    linux = output_dir / "fake-ui-bridge-client-v3.0.2-linux.tar.gz"
+    windows = output_dir / "fake-ui-bridge-client-v3.0.2-windows.zip"
     assert macos.exists()
     assert linux.exists()
     assert windows.exists()

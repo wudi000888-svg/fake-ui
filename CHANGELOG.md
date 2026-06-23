@@ -1,14 +1,24 @@
 # 更新日志
 
+## v3.0.2
+
+| 类型 | 内容 |
+| --- | --- |
+| 产品定位 | 面板、README、说明书和本地控制台统一改为“本地服务发布”，强调把客户本地端口发布到海外 VPS，而不是让客户理解底层 tunnel 概念 |
+| 面板文案 | 管理端导航、创建按钮、空状态、教程、确认弹窗和成功提示统一为“新增服务 / 已发布服务 / 后端客户端 / 服务发布入口” |
+| 客户说明 | 新增 `docs/fake-ui-v3.0.2-project-brief.html`，用招商说明书形式解释项目结构、网络拓扑、服务发布链路和客户操作逻辑 |
+| 发布版本 | 前端缓存串、运行时默认版本、安装脚本、Windows 部署脚本和通用 bridge client 默认打包版本升级到 `3.0.2` |
+| 兼容边界 | 继续保留底层 `tunnel_*` API、配置文件名和数据结构，已有 v3.0.0/v3.0.1 服务发布配置无需迁移 |
+
 ## v3.0.1
 
 | 类型 | 内容 |
 | --- | --- |
-| 配对 Agent | 新增 dedicated/shared 内网穿透配对 Agent 包，面板生成短期一次性 token，本地后端首次运行时主动 bootstrap 拉取配置 |
+| 配对 Agent | 新增 dedicated/shared 本地服务发布配对 Agent 包，面板生成短期一次性 token，本地后端首次运行时主动 bootstrap 拉取配置 |
 | 本地客户端 | `bootstrap-agent.py` 会写入 `xray-bridge.json`、`bridge-dashboard.json` 和 `agent-state.json`，成功后清空 `agent-profile.json` 中的 token |
 | 本地控制台 | Bridge dashboard 升级为 fake-ui 风格本地应用，保留 `127.0.0.1:19090` local-only 边界，并展示 runtime、服务、setup、日志和状态 API |
 | 本地导入 | 导入 `xray-bridge.json` 后自动刷新 dashboard 服务 metadata，保留公网域名展示，并避免误把 Xray 配置导入为 dashboard/profile |
-| 域名与导出 | 内网穿透新增域名资格自动识别，候选/已有域名中只提示已解析到本 VPS 且未被面板/普通节点占用的域名；服务级 JSON 导出收敛为后端客户端“导出总 JSON” |
+| 域名与导出 | 本地服务发布新增域名资格自动识别，候选/已有域名中只提示已解析到本 VPS 且未被面板/普通节点占用的域名；服务级 JSON 导出收敛为后端客户端“导出总 JSON” |
 | TCP/SSH | 私有 TCP 标注无需域名，shared bridge 默认补同 Bridge ID 的 SSH 映射，避免客户另行手动创建救援入口 |
 | TUN 共存 | 本地客户端会检测 Shadowrocket/Clash 等 TUN/fake-ip 环境，启动、bootstrap 或手动导入后尽量给 Bridge reverse 出站写入物理网卡 `sockopt.interface`，控制台提供“应用代理兼容”一键修复 |
 | 安全 | 配对 token 只 hash 存储；dashboard 渲染日志和配置预览时脱敏 UUID、Reality key、short ID 和 pairing token |
@@ -18,13 +28,13 @@
 
 | 类型 | 内容 |
 | --- | --- |
-| 内网穿透 | 新增通用内网穿透管理页，支持任意客户域名映射到 macOS、Linux 或 Windows 后端本地服务，不再绑定固定域名后缀 |
-| 自动化 | 面板保存穿透节点时自动分配 portal 端口、生成独立 UUID、email、portal tag 和 reverse tag，并校验与普通代理用户 UUID 不复用 |
-| VPS | 应用穿透时自动更新 Xray Reality portal 配置、生成 Nginx HTTP/HTTPS 反代、通过 certbot 签发域名证书并 reload Nginx |
+| 本地服务发布 | 新增通用本地服务发布管理页，支持任意客户域名映射到 macOS、Linux 或 Windows 后端本地服务，不再绑定固定域名后缀 |
+| 自动化 | 面板保存发布服务时自动分配 portal 端口、生成独立 UUID、email、portal tag 和 reverse tag，并校验与普通代理用户 UUID 不复用 |
+| VPS | 应用服务发布入口时自动更新 Xray Reality portal 配置、生成 Nginx HTTP/HTTPS 反代、通过 certbot 签发域名证书并 reload Nginx |
 | 后端 Agent | 每个服务可导出 macOS launchd、Linux systemd 或 Windows Scheduled Task 安装包，包含 Xray 配置、安装、卸载和状态检查脚本 |
 | 高级模式 | 支持“单机器共享 bridge”，同一后端机器上的多个服务可以合并到一个 Xray Agent 进程，SSH 等救援入口仍可保持独立 |
-| 架构 | 默认采用单服务单 bridge 模式，普通代理用户继续使用 `panel-user:<username>`，穿透 bridge 使用 `tunnel:<id>` |
-| 升级 | 应用穿透配置时会自动禁用旧版 `fake-ui-tunnel-*.conf` 单域名 Nginx 配置，避免旧 upstream 抢占新域名导致 502 |
+| 架构 | 默认采用单服务单 bridge 模式，普通代理用户继续使用 `panel-user:<username>`，服务发布 bridge 使用 `tunnel:<id>` |
+| 升级 | 应用服务发布配置时会自动禁用旧版 `fake-ui-tunnel-*.conf` 单域名 Nginx 配置，避免旧 upstream 抢占新域名导致 502 |
 
 ## v2.3.1
 

@@ -410,7 +410,7 @@ PANEL_IMAGE=xray-proxy-panel:local
 HYSTERIA_IMAGE=tobyxdd/hysteria:v2.9.2
 NGINX_IMAGE=nginx:1.27-alpine
 CERTBOT_IMAGE=certbot/certbot:v5.2.2
-FAKE_UI_VERSION=3.0.1
+FAKE_UI_VERSION=3.0.2
 FAKE_UI_HOST_COMMAND_MODE=$([[ "$DEPLOY_MODE" == "native-nginx" ]] && echo docker-nsenter || true)
 FAKE_UI_DB=/data/panel/fake-ui.db
 EOF
@@ -1064,7 +1064,7 @@ load_existing_env
 PUBLIC_IP="$(curl -4sS --connect-timeout 8 https://api.ipify.org || true)"
 echo "检测到当前 VPS 公网 IP: ${PUBLIC_IP:-未知}"
 if [[ -z "$PUBLIC_IP" ]]; then
-  echo "无法自动检测公网 IP；安装后请在 .env 设置 TUNNEL_SERVER_IPS=你的VPS IP，否则内网穿透域名保存校验会降级。"
+  echo "无法自动检测公网 IP；安装后请在 .env 设置 TUNNEL_SERVER_IPS=你的VPS IP，否则本地服务发布域名保存校验会降级。"
 fi
 echo
 echo "请确认 DNS 已解析到本机公网 IP。建议记录："

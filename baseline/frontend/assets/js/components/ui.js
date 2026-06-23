@@ -1,4 +1,4 @@
-import { esc } from "./layout.js?v=3.0.1";
+import { esc } from "./layout.js?v=3.0.2";
 
 
 export function gb(bytes) {

@@ -1,7 +1,7 @@
-import { download, post } from "../api.js?v=3.0.1";
-import { state } from "../state.js?v=3.0.1";
-import { closeForms, fillPlanForm } from "./forms.js?v=3.0.1";
-import { applyNodePayload } from "./users_nodes.js?v=3.0.1";
+import { download, post } from "../api.js?v=3.0.2";
+import { state } from "../state.js?v=3.0.2";
+import { closeForms, fillPlanForm } from "./forms.js?v=3.0.2";
+import { applyNodePayload } from "./users_nodes.js?v=3.0.2";
 
 
 async function fileToBase64(file) {

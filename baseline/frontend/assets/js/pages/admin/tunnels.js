@@ -1,4 +1,4 @@
-import { esc } from "../../components/layout.js?v=3.0.1";
+import { esc } from "../../components/layout.js?v=3.0.2";
 
 
 function matchesTunnel(tunnel, query) {
@@ -31,7 +31,7 @@ function agentKey(tunnel) {
 
 
 function serviceCountLabel(count) {
-  return `${count} 个服务映射`;
+  return `${count} 个已发布服务`;
 }
 
 
@@ -203,7 +203,7 @@ function tutorialCard() {
   return `
     <article class="admin-card tunnel-guide-card">
       <div>
-        <strong>详细教程：三步完成内网穿透</strong>
+        <strong>详细教程：三步发布本地服务</strong>
         <span>客户操作步骤</span>
       </div>
       <div class="tunnel-steps">
@@ -213,11 +213,11 @@ function tutorialCard() {
         </div>
         <div class="tunnel-step">
           <b>2</b>
-          <div><strong>运行本地服务</strong><p>在客户电脑或服务器上启动真实服务，端口要和服务映射里填写的本地地址、本地端口一致。</p></div>
+          <div><strong>运行本地服务</strong><p>在客户电脑或服务器上启动真实服务，端口要和服务里填写的本地地址、本地端口一致。</p></div>
         </div>
         <div class="tunnel-step">
           <b>3</b>
-          <div><strong>检查本地控制台</strong><p>安装后打开 <code>http://127.0.0.1:19090/</code>，确认运行状态、服务探测和公网地址都是正常。</p></div>
+          <div><strong>检查本地控制台</strong><p>安装后打开 <code>http://127.0.0.1:19090/</code>，确认运行状态、服务探测和公网地址正常，再发布到海外 VPS。</p></div>
         </div>
       </div>
       <div class="tunnel-platform-grid">
@@ -240,7 +240,7 @@ function tutorialCard() {
           <p>安装完成后运行 <code>open-dashboard.ps1</code> 打开本地控制台。</p>
         </div>
       </div>
-      <p>理解方式：域名解析到 VPS，VPS 负责 HTTPS/Reality 入口；后端客户端主动连回 VPS。客户机器没有公网 IP 也可以提供服务。</p>
+      <p>理解方式：把本地端口发布为海外 HTTPS 域名。域名解析到 VPS，VPS 负责 HTTPS/Reality 入口；后端客户端主动连回 VPS。客户机器没有公网 IP 也可以提供服务。</p>
     </article>
   `;
 }
@@ -265,16 +265,16 @@ export function renderAdminTunnels(data = {}) {
   return `
     <section class="screen stack">
       <div class="screen-head">
-        <div><h1>内网穿透</h1><p>公网入口、后端 Agent 回连与本地服务映射。</p></div>
+        <div><h1>本地服务发布</h1><p>把中国本地端口发布为海外 HTTPS 域名、私有 TCP 或 SSH 入口。</p></div>
         <div class="admin-actions">
           <button class="secondary" data-action="tunnel-portal-export" type="button">导出 VPS 配置</button>
           <button class="secondary" data-action="tunnel-portal-apply" type="button">应用到 VPS</button>
-          <button class="primary" data-action="tunnel-create-sheet" type="button">新增穿透</button>
+          <button class="primary" data-action="tunnel-create-sheet" type="button">新增服务</button>
         </div>
       </div>
       ${tutorialCard()}
       <article class="admin-card tunnel-edit-form" hidden>
-        <div><strong>编辑穿透节点</strong><span>填写公网域名、后端系统和本地服务端口，其余参数会自动生成。</span></div>
+        <div><strong>编辑发布服务</strong><span>填写访问方式、后端系统和本地服务端口，其余参数会自动生成。</span></div>
         <form class="form-grid compact-form" data-form="tunnel-save">
           <label>类型<select name="kind"><option value="public_https">公开 HTTPS 服务</option><option value="private_tcp">私有 TCP 服务</option></select></label>
           <label>公网域名<input name="public_domain" list="tunnel-domain-options" autocomplete="off" placeholder="app.example.com"><datalist id="tunnel-domain-options">${domainOptionsMarkup(domainOptions)}</datalist></label>
@@ -290,16 +290,16 @@ export function renderAdminTunnels(data = {}) {
           <label>Bridge ID<input name="bridge_id" autocomplete="off" placeholder="office-web"></label>
           <label>后端系统<select name="bridge_platform"><option value="macos">macOS</option><option value="linux">Linux</option><option value="windows">Windows</option></select></label>
           <div class="form-actions">
-            <button class="primary" type="submit">保存穿透</button>
+            <button class="primary" type="submit">保存服务</button>
             <button class="secondary" data-action="tunnel-form-close" type="button">收起</button>
           </div>
         </form>
         ${domainStatusCard(domainOptions)}
       </article>
-      <div class="toolbar"><input data-filter="tunnels" value="${esc(query)}" placeholder="搜索穿透节点、入口或本地服务"><button data-action="tunnels-filter" type="button">筛选</button></div>
+      <div class="toolbar"><input data-filter="tunnels" value="${esc(query)}" placeholder="搜索已发布服务、访问入口或本地端口"><button data-action="tunnels-filter" type="button">筛选</button></div>
       <section class="tunnel-section stack">
         <div class="section-title"><h2>后端客户端</h2><p>每台后端机器下载一个配对安装包即可；共享 Agent 下多个服务会自动合并到同一个客户端。</p></div>
-        <div class="card-list compact">${primaryAgentCard(groups) || `<article class="admin-card empty"><p>${tunnels.length ? "没有匹配的后端客户端" : "暂无后端客户端，先新增穿透服务"}</p><button data-action="tunnel-create-sheet" type="button">新增穿透</button></article>`}</div>
+        <div class="card-list compact">${primaryAgentCard(groups) || `<article class="admin-card empty"><p>${tunnels.length ? "没有匹配的后端客户端" : "暂无后端客户端，先新增要发布的本地服务"}</p><button data-action="tunnel-create-sheet" type="button">新增服务</button></article>`}</div>
         ${agentCards ? `
           <details class="tunnel-agent-advanced">
             <summary>高级：查看后端客户端分组（${groups.length}）</summary>
@@ -309,8 +309,8 @@ export function renderAdminTunnels(data = {}) {
         ` : ""}
       </section>
       <section class="tunnel-section stack">
-        <div class="section-title"><h2>服务映射</h2><p>这里管理公网域名、VPS 入口端口和后端本地端口。下载客户端请到上面的“后端客户端”。</p></div>
-        <div class="card-list">${activeServices || `<article class="admin-card empty"><p>${tunnels.length ? "没有匹配的在线服务" : "暂无穿透节点"}</p><button data-action="tunnel-create-sheet" type="button">新增穿透</button></article>`}</div>
+        <div class="section-title"><h2>已发布服务</h2><p>这里管理公网域名、VPS 入口端口和客户机器上的本地端口。下载客户端请到上面的“后端客户端”。</p></div>
+        <div class="card-list">${activeServices || `<article class="admin-card empty"><p>${tunnels.length ? "没有匹配的在线服务" : "暂无已发布服务"}</p><button data-action="tunnel-create-sheet" type="button">新增服务</button></article>`}</div>
       </section>
       ${visibleDisabledTunnels.length ? `
         <details class="tunnel-disabled-section">

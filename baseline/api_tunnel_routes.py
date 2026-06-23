@@ -466,6 +466,6 @@ def handle_tunnel_post(clean, data, session):
     if clean == "/api/tunnels/apply":
         backup, nginx = apply_tunnel_entries()
         audit_log.write(session.get("u", "admin"), "tunnel.apply", "xray-nginx", {"backup": str(backup), "nginx": nginx})
-        return ok(message="穿透入口已应用到 Xray / Nginx", backup=str(backup), nginx=nginx, tunnels=tunnel_catalog.list_public_tunnels(), domain_options=current_domain_options())
+        return ok(message="服务发布入口已应用到 Xray / Nginx", backup=str(backup), nginx=nginx, tunnels=tunnel_catalog.list_public_tunnels(), domain_options=current_domain_options())
 
     return api_error("not found", 404)

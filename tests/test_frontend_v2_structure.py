@@ -22,10 +22,10 @@ def test_frontend_v2_modules_exist_and_index_uses_module_entry():
     index = (ROOT / "baseline" / "frontend" / "index.html").read_text(encoding="utf-8")
     assert 'type="module"' in index
     assert "assets/js/main.js" in index
-    assert "/assets/js/main.js?v=3.0.1" in index
-    assert "/assets/css/tokens.css?v=3.0.1" in index
-    assert "/assets/css/layout.css?v=3.0.1" in index
-    assert "/assets/css/components.css?v=3.0.1" in index
+    assert "/assets/js/main.js?v=3.0.2" in index
+    assert "/assets/css/tokens.css?v=3.0.2" in index
+    assert "/assets/css/layout.css?v=3.0.2" in index
+    assert "/assets/css/components.css?v=3.0.2" in index
     assert 'rel="icon"' in index
     assert "favicon.svg" in index
 
@@ -71,7 +71,7 @@ def test_frontend_v2_main_is_modular_entrypoint():
     assert "bindAppActions" in main
     assert 'app.addEventListener("click"' not in main
     assert 'app.addEventListener("submit"' not in main
-    assert 'from "./pages/registry.js?v=3.0.1"' in main
+    assert 'from "./pages/registry.js?v=3.0.2"' in main
 
 
 def test_frontend_v2_module_imports_are_versioned_for_upgrade_cache_busting():
@@ -79,7 +79,7 @@ def test_frontend_v2_module_imports_are_versioned_for_upgrade_cache_busting():
         text = path.read_text(encoding="utf-8")
         for line in text.splitlines():
             if line.startswith("import ") and " from " in line and (".js\"" in line or ".js'" in line):
-                assert "?v=3.0.1" in line, f"{path.relative_to(ASSETS)} has unversioned import: {line}"
+                assert "?v=3.0.2" in line, f"{path.relative_to(ASSETS)} has unversioned import: {line}"
 
 
 def test_frontend_exposes_self_registration_and_admin_toggle():
@@ -188,7 +188,7 @@ def test_frontend_exposes_tunnel_management_screen():
     user_node_actions = read_asset("js/actions/users_nodes.js")
 
     assert 'if (state.route === "tunnels") return renderAdminTunnels(data);' in routes
-    assert "内网穿透" in tunnels
+    assert "本地服务发布" in tunnels
     assert 'data-form="tunnel-save"' in tunnels
     assert 'data-action="tunnel-export"' not in tunnels
     assert 'data-action="tunnel-agent-config-export"' in tunnels
@@ -226,7 +226,7 @@ def test_frontend_exposes_tunnel_management_screen():
     assert 'post("/api/tunnels/apply"' in handlers
     assert "downloadText" in handlers
     assert "state.data.domain_options = out.domain_options" in handlers
-    assert 'import { api, download, downloadText, post } from "../api.js?v=3.0.1";' in user_node_actions
+    assert 'import { api, download, downloadText, post } from "../api.js?v=3.0.2";' in user_node_actions
 
 
 def test_tunnel_screen_guides_customers_and_groups_shared_agents_once():
@@ -235,13 +235,13 @@ def test_tunnel_screen_guides_customers_and_groups_shared_agents_once():
 
     for label in [
         "详细教程",
-        "三步完成",
+        "三步发布本地服务",
         "下载安装包",
         "运行本地服务",
         "检查本地控制台",
         "一个后端客户端可以承载多个服务",
         "后端客户端",
-        "服务映射",
+        "已发布服务",
         "历史/停用服务",
         "客户操作步骤",
         "macOS 安装",
@@ -539,7 +539,7 @@ def test_frontend_v2_layout_prevents_dashboard_overflow():
 
     assert "version-chip" in layout_js
     assert "state.shell?.version" in layout_js
-    assert 'state.shell?.version || "3.0.1"' in layout_js
+    assert 'state.shell?.version || "3.0.2"' in layout_js
     assert "side-nav-scroll" in layout_js
     assert "side-nav-footer" in layout_js
     assert "nav-stack secondary" not in layout_js

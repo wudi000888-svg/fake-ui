@@ -1416,7 +1416,7 @@ def render_dashboard(status):
             <div class="guide-item">
               <h3>推荐方式：配对 Agent</h3>
               <ol>
-                <li>在 fake-ui 面板的“内网穿透”里生成配对 Agent 包。</li>
+                <li>在 fake-ui 面板的“本地服务发布”里下载后端客户端。</li>
                 <li>解压后运行安装脚本，客户端会自动拉取配置。</li>
                 <li>打开本页确认“运行状态”和“本地服务”均正常。</li>
               </ol>
@@ -1431,7 +1431,7 @@ def render_dashboard(status):
             </div>
             <div class="guide-item">
               <h3>常用命令</h3>
-              <p class="mono-line"><code>cd ~/.fake-ui/bridge-client-v3.0.1</code></p>
+              <p class="mono-line"><code>cd ~/.fake-ui/bridge-client-v3.0.2</code></p>
               <p class="mono-line"><code>bash open-dashboard.sh</code> 打开本页</p>
               <p class="mono-line"><code>bash start-bridge.sh</code> 启动 bridge</p>
               <p class="mono-line"><code>bash stop-bridge.sh</code> 停止 bridge</p>

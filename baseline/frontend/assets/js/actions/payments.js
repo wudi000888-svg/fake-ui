@@ -1,7 +1,7 @@
-import { post } from "../api.js?v=3.0.1";
-import { cssEscape, copyText, showInlineForm } from "../dom.js?v=3.0.1";
-import { state, setNotice } from "../state.js?v=3.0.1";
-import { closeCheckout, openCheckout } from "./forms.js?v=3.0.1";
+import { post } from "../api.js?v=3.0.2";
+import { cssEscape, copyText, showInlineForm } from "../dom.js?v=3.0.2";
+import { state, setNotice } from "../state.js?v=3.0.2";
+import { closeCheckout, openCheckout } from "./forms.js?v=3.0.2";
 
 
 function firstEnabledPaymentMethod() {

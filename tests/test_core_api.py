@@ -171,7 +171,7 @@ def test_admin_app_shell_includes_tunnel_nav(app_modules):
     status, payload = api.handle_get("/api/app-shell", admin_session(app_modules))
 
     assert status == 200
-    assert {"id": "tunnels", "label": "内网穿透", "icon": "⇄"} in payload["nav"]
+    assert {"id": "tunnels", "label": "本地服务发布", "icon": "⇄"} in payload["nav"]
 
 
 def test_public_registration_is_disabled_by_default(app_modules):

@@ -1,0 +1,1294 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fake-ui v3.0.2 项目结构与网络拓扑说明书</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --paper: #ffffff;
+      --ink: #172033;
+      --muted: #647086;
+      --line: #d8deea;
+      --soft: #eef3fb;
+      --soft-2: #f8fafc;
+      --primary: #2563eb;
+      --primary-dark: #1e40af;
+      --accent: #0f766e;
+      --warning: #b45309;
+      --danger: #b91c1c;
+      --good: #15803d;
+      --shadow: 0 18px 55px rgba(23, 32, 51, 0.10);
+      --radius: 8px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.72;
+      overflow-x: hidden;
+    }
+
+    a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 22px 72px;
+    }
+
+    .hero {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 34px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.8fr);
+      gap: 30px;
+      align-items: stretch;
+    }
+
+    .hero > *,
+    .grid > *,
+    .split > *,
+    .flow > *,
+    .metric > * {
+      min-width: 0;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--primary-dark);
+      background: #eaf1ff;
+      border: 1px solid #c8dafc;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.22;
+      letter-spacing: 0;
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+
+    h1 {
+      margin-top: 18px;
+      font-size: clamp(32px, 5vw, 56px);
+      max-width: 780px;
+    }
+
+    h2 {
+      font-size: 27px;
+      margin-bottom: 12px;
+    }
+
+    h3 {
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+
+    p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
+    .lead {
+      margin-top: 18px;
+      font-size: 18px;
+      color: #425069;
+      max-width: 820px;
+    }
+
+    .hero-card {
+      border: 1px solid var(--line);
+      background: var(--soft-2);
+      border-radius: var(--radius);
+      padding: 20px;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    .metric {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      padding-bottom: 13px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .metric:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+      color: var(--primary-dark);
+      white-space: nowrap;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .toc {
+      margin: 18px 0 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .toc a {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 999px;
+      padding: 6px 11px;
+      color: #334155;
+      font-size: 13px;
+    }
+
+    section {
+      margin-top: 22px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 28px;
+      box-shadow: 0 10px 30px rgba(23, 32, 51, 0.05);
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-start;
+      margin-bottom: 18px;
+    }
+
+    .section-head p {
+      max-width: 720px;
+      margin: 6px 0 0;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      height: 26px;
+      border-radius: 999px;
+      padding: 0 10px;
+      background: var(--soft);
+      color: #40516d;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .grid.four {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 18px;
+      background: var(--soft-2);
+    }
+
+    .card p:last-child,
+    .note p:last-child {
+      margin-bottom: 0;
+    }
+
+    .card strong {
+      color: var(--ink);
+    }
+
+    .num {
+      display: inline-grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: #fff;
+      font-weight: 800;
+      font-size: 13px;
+      margin-right: 8px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 9px;
+      background: #e8f7ef;
+      color: var(--good);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .pill.warn {
+      background: #fff7ed;
+      color: var(--warning);
+    }
+
+    .pill.blue {
+      background: #eaf1ff;
+      color: var(--primary-dark);
+    }
+
+    .note {
+      border-left: 4px solid var(--primary);
+      background: #f4f8ff;
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 14px 16px;
+      color: #40516d;
+      margin-top: 14px;
+    }
+
+    .note.warning {
+      border-left-color: var(--warning);
+      background: #fff8ed;
+    }
+
+    .note.good {
+      border-left-color: var(--good);
+      background: #f0fdf4;
+    }
+
+    table {
+      width: 100%;
+      max-width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: #fff;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+
+    th {
+      background: #eef3fb;
+      color: #23304a;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    code {
+      font-family: var(--mono);
+      font-size: 0.92em;
+      background: #edf2f7;
+      border: 1px solid #d8e0eb;
+      border-radius: 5px;
+      padding: 1px 5px;
+      color: #243044;
+      overflow-wrap: anywhere;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #111827;
+      color: #e5e7eb;
+      border-radius: var(--radius);
+      padding: 16px;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.62;
+      overflow: auto;
+    }
+
+    .diagram {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, #fbfdff 0%, #f3f6fb 100%);
+      padding: 18px;
+      overflow: auto;
+    }
+
+    .lane {
+      display: grid;
+      grid-template-columns: 210px 42px 230px 42px minmax(240px, 1fr);
+      gap: 0;
+      align-items: center;
+      min-width: 820px;
+      margin: 12px 0;
+    }
+
+    .lane.wide {
+      grid-template-columns: 180px 42px 210px 42px 210px 42px minmax(230px, 1fr);
+      min-width: 980px;
+    }
+
+    .node {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 14px;
+      min-height: 96px;
+      box-shadow: 0 8px 24px rgba(23, 32, 51, 0.07);
+    }
+
+    .node strong {
+      display: block;
+      color: var(--ink);
+      margin-bottom: 4px;
+    }
+
+    .node small {
+      display: block;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .node.primary {
+      border-color: #b8cffd;
+      background: #f6f9ff;
+    }
+
+    .node.accent {
+      border-color: #a7f3d0;
+      background: #f0fdf4;
+    }
+
+    .node.warn {
+      border-color: #fed7aa;
+      background: #fff7ed;
+    }
+
+    .arrow {
+      height: 2px;
+      background: #9aa8bd;
+      position: relative;
+      margin: 0 10px;
+    }
+
+    .arrow::after {
+      content: "";
+      position: absolute;
+      right: -1px;
+      top: 50%;
+      width: 8px;
+      height: 8px;
+      border-top: 2px solid #9aa8bd;
+      border-right: 2px solid #9aa8bd;
+      transform: translateY(-50%) rotate(45deg);
+    }
+
+    .stacked {
+      display: grid;
+      gap: 10px;
+    }
+
+    .mini {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 10px 12px;
+    }
+
+    .mini strong {
+      display: block;
+      font-size: 13px;
+      color: #23304a;
+    }
+
+    .mini span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      counter-reset: flow;
+    }
+
+    .flow .card {
+      position: relative;
+      min-height: 180px;
+    }
+
+    .flow .card::before {
+      counter-increment: flow;
+      content: counter(flow);
+      position: absolute;
+      right: 14px;
+      top: 14px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: #dbeafe;
+      color: var(--primary-dark);
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(340px, 0.82fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .checklist {
+      display: grid;
+      gap: 9px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .checklist li {
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      color: #425069;
+    }
+
+    .checklist li::before {
+      content: "✓";
+      display: grid;
+      place-items: center;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #dcfce7;
+      color: var(--good);
+      font-size: 12px;
+      font-weight: 900;
+      margin-top: 3px;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 12px;
+      position: relative;
+      padding-left: 20px;
+    }
+
+    .timeline::before {
+      content: "";
+      position: absolute;
+      left: 8px;
+      top: 8px;
+      bottom: 8px;
+      width: 2px;
+      background: var(--line);
+    }
+
+    .timeline-item {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--soft-2);
+      padding: 14px 14px 14px 18px;
+    }
+
+    .timeline-item::before {
+      content: "";
+      position: absolute;
+      left: -17px;
+      top: 18px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--primary);
+      border: 3px solid #fff;
+      box-shadow: 0 0 0 1px var(--line);
+    }
+
+    .footer {
+      margin: 22px 0 0;
+      padding: 20px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .hero,
+      .split,
+      .grid.two,
+      .grid.three,
+      .grid.four {
+        grid-template-columns: 1fr;
+      }
+
+      .flow {
+        grid-template-columns: 1fr;
+      }
+
+      .section-head {
+        display: block;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .page {
+        padding: 16px 12px 48px;
+      }
+
+      .hero,
+      section {
+        padding: 22px;
+      }
+
+      h1 {
+        font-size: 30px;
+      }
+
+      h2 {
+        font-size: 24px;
+      }
+
+      .lead {
+        font-size: 16px;
+      }
+
+      .hero-card {
+        padding: 16px;
+      }
+
+      .metric {
+        grid-template-columns: 58px minmax(0, 1fr);
+      }
+
+      .metric strong {
+        font-size: 22px;
+      }
+
+      .toc a {
+        font-size: 12px;
+        padding: 5px 9px;
+      }
+
+      table {
+        display: block;
+        overflow-x: auto;
+      }
+
+      th {
+        white-space: normal;
+      }
+    }
+
+    @media print {
+      body {
+        background: #fff;
+        font-size: 13px;
+      }
+
+      .page {
+        max-width: none;
+        padding: 0;
+      }
+
+      .hero,
+      section {
+        box-shadow: none;
+        break-inside: avoid;
+      }
+
+      .toc {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <span class="eyebrow">fake-ui v3.0.2 · 项目结构 / 网络拓扑 / 用户逻辑</span>
+        <h1>一台 VPS 同时承载代理编排、公开网站入口与本地服务发布</h1>
+        <p class="lead">这份说明书面向合作方、客户和二次开发团队，解释 fake-ui 3.0.2 的产品定位、工程结构、流量路径、后端 Agent 工作方式，以及普通客户把本地端口发布到海外 VPS 的完整操作逻辑。</p>
+        <nav class="toc" aria-label="目录">
+          <a href="#position">项目定位</a>
+          <a href="#structure">项目结构</a>
+          <a href="#topology">网络拓扑</a>
+          <a href="#tunnel">本地服务发布</a>
+          <a href="#proxy">普通节点</a>
+          <a href="#user-flow">用户逻辑</a>
+          <a href="#delivery">交付清单</a>
+          <a href="#commercial">商业说明</a>
+        </nav>
+      </div>
+      <aside class="hero-card" aria-label="关键指标">
+        <div class="metric">
+          <strong>1 台</strong>
+          <span>入口 VPS 集中承载面板、证书、VLESS Reality、Hysteria2、Nginx 与本地服务发布 portal。</span>
+        </div>
+        <div class="metric">
+          <strong>3 端</strong>
+          <span>后端客户端支持 macOS、Linux、Windows，客户机器无公网 IP 也能主动回连。</span>
+        </div>
+        <div class="metric">
+          <strong>2 类</strong>
+          <span>同时服务普通代理节点和本地服务发布节点，UUID、email、portal tag、端口相互隔离。</span>
+        </div>
+        <div class="metric">
+          <strong>1 包</strong>
+          <span>推荐每台后端机器只下载一个配对安装包，多个本地服务合并到同一个 Agent。</span>
+        </div>
+      </aside>
+    </header>
+
+    <section id="position">
+      <div class="section-head">
+        <div>
+          <h2>一、项目定位</h2>
+          <p>fake-ui 不是“大而全”的传统面板，而是单 VPS 多出口代理编排系统，并在 v3.0.2 增加了可交付给客户使用的跨境本地服务发布能力。</p>
+        </div>
+        <span class="tag">产品视角</span>
+      </div>
+      <div class="grid three">
+        <article class="card">
+          <h3>统一入口</h3>
+          <p>一台线路稳定的 VPS 负责公网入口、证书、面板、订阅、Nginx HTTPS、Xray Reality 和 Hysteria2。客户或终端用户只需要访问统一域名或订阅地址。</p>
+        </article>
+        <article class="card">
+          <h3>多出口编排</h3>
+          <p>同一台 VPS 可以维护多个 VLESS 节点，每个节点独立绑定直连、HTTP 上游或 SOCKS5 上游，节点名称可跟随真实出口 IP 和国家自动同步。</p>
+        </article>
+        <article class="card">
+          <h3>本地服务发布</h3>
+          <p>客户的 Mac、Windows 或 Linux 机器没有公网 IP 也可以运行服务；后端 Agent 主动连接 VPS，VPS 负责把公网 HTTPS 或私有 TCP 流量转发到客户本地端口。</p>
+        </article>
+      </div>
+      <div class="note good">
+        <p><strong>核心卖点：</strong>合作方只需要维护一台入口 VPS，就能同时提供普通代理节点、用户订阅、订单套餐、链上收款、公开网站发布、私有 SSH/TCP 通道和后端客户端配对交付。</p>
+      </div>
+    </section>
+
+    <section id="structure">
+      <div class="section-head">
+        <div>
+          <h2>二、项目结构</h2>
+          <p>仓库按“面板入口、HTTP 路由、业务服务、配置编排、前端静态资源、脚本和测试”拆分。运行态数据、证书、真实域名、用户密码和订阅 token 不进入 Git。</p>
+        </div>
+        <span class="tag">工程视角</span>
+      </div>
+      <div class="split">
+        <div class="diagram" aria-label="项目结构图">
+          <div class="stacked">
+            <div class="mini"><strong>baseline/panel.py</strong><span>面板服务入口，启动 HTTP 服务。</span></div>
+            <div class="mini"><strong>baseline/web_handler.py</strong><span>总分发层，把浏览器请求路由到登录、API、订阅、静态资源等模块。</span></div>
+            <div class="mini"><strong>baseline/http_*_routes.py</strong><span>HTTP 路由层：认证、API、订阅、二维码、静态资源。</span></div>
+            <div class="mini"><strong>baseline/api_*.py</strong><span>管理员和用户 API：节点、用户、订单、支付、本地服务发布、Agent 配对。</span></div>
+            <div class="mini"><strong>baseline/frontend/</strong><span>前端 SPA，包含管理端、用户端、本地服务发布页和本地控制台同风格资源。</span></div>
+            <div class="mini"><strong>baseline/xray_* / hy2_*</strong><span>Xray 与 Hysteria2 配置生成、校验、重启、回滚和状态读取。</span></div>
+            <div class="mini"><strong>baseline/tunnel_*</strong><span>本地服务发布 catalog、Nginx 配置、Xray portal/bridge 配置、Agent 打包。</span></div>
+            <div class="mini"><strong>baseline/repositories/</strong><span>SQLite 仓储层，保存用户、节点、订单、设置、服务发布 catalog 和配对 token hash。</span></div>
+            <div class="mini"><strong>scripts/</strong><span>一键安装、Compose 初始化、备份导入、发布打包、本地测试。</span></div>
+            <div class="mini"><strong>tests/</strong><span>pytest 回归测试，覆盖 API、隧道配置、Agent 配对、发布流程等。</span></div>
+          </div>
+        </div>
+        <div>
+          <table>
+            <thead>
+              <tr>
+                <th>层级</th>
+                <th>关键文件</th>
+                <th>职责</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>权限与安全</td>
+                <td><code>security.py</code><br><code>auth_store.py</code><br><code>api_common.py</code></td>
+                <td>管理员/用户会话、Cookie、CSRF、统一 API 响应和权限校验。</td>
+              </tr>
+              <tr>
+                <td>业务运营</td>
+                <td><code>user_store.py</code><br><code>plans_store.py</code><br><code>orders_store.py</code></td>
+                <td>用户、套餐、订单、到期、流量限制、禁用状态。</td>
+              </tr>
+              <tr>
+                <td>节点编排</td>
+                <td><code>node_catalog.py</code><br><code>node_exit_service.py</code><br><code>xray_config_builder.py</code></td>
+                <td>多 VLESS 节点排序、出口同步、上游代理切换、订阅生成。</td>
+              </tr>
+              <tr>
+                <td>服务发布编排</td>
+                <td><code>tunnel_catalog.py</code><br><code>tunnel_config_builder.py</code><br><code>tunnel_nginx.py</code></td>
+                <td>保存发布服务、生成 portal/bridge 配置、自动写入 Nginx HTTPS 入口。</td>
+              </tr>
+              <tr>
+                <td>Agent 交付</td>
+                <td><code>agent_pairing.py</code><br><code>tunnel_bridge_bundle.py</code></td>
+                <td>生成一次性配对 token、打包通用后端客户端、bootstrap 拉取真实配置。</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="note">
+            <p><strong>代码边界：</strong>普通代理用户 email 使用 <code>panel-user:xxx</code> 这类业务身份；本地服务发布 bridge 使用 <code>tunnel:service-id</code>，从 UUID、email、tag、portal 端口上与普通节点隔离，避免 Reality 入站混淆。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="topology">
+      <div class="section-head">
+        <div>
+          <h2>三、VPS 总体网络拓扑</h2>
+          <p>VPS 是整套系统的公网门面：浏览器、代理客户端、公开网站访问者和后端 Agent 都先连接 VPS，再由 Nginx、Xray、Hysteria2 或面板 API 分流。</p>
+        </div>
+        <span class="tag">网络视角</span>
+      </div>
+      <div class="diagram">
+        <div class="lane wide">
+          <div class="node">
+            <strong>访问者 / 用户客户端</strong>
+            <small>浏览器访问公开网站<br>代理客户端导入订阅<br>管理员访问面板</small>
+          </div>
+          <div class="arrow"></div>
+          <div class="node primary">
+            <strong>VPS 公网入口</strong>
+            <small>TCP 80 / TCP 443 / UDP 443<br>统一证书和域名入口</small>
+          </div>
+          <div class="arrow"></div>
+          <div class="node primary">
+            <strong>Nginx / Stream 分流</strong>
+            <small>HTTP ACME 与跳转<br>HTTPS 面板/站点<br>SNI 分流到 Xray</small>
+          </div>
+          <div class="arrow"></div>
+          <div class="node accent">
+            <strong>Panel / Xray / HY2</strong>
+            <small>面板 127.0.0.1:9100<br>Xray 内部 8443<br>Hysteria2 UDP 443</small>
+          </div>
+        </div>
+        <div class="lane wide">
+          <div class="node">
+            <strong>客户后端机器</strong>
+            <small>macOS / Linux / Windows<br>无公网 IP 也可以</small>
+          </div>
+          <div class="arrow"></div>
+          <div class="node warn">
+            <strong>本地 Xray Bridge</strong>
+            <small>主动回连 VPS<br>Reality SNI 默认 www.cloudflare.com<br>绑定本机服务端口</small>
+          </div>
+          <div class="arrow"></div>
+          <div class="node primary">
+            <strong>VPS Xray Portal</strong>
+            <small>每个服务独立 portal tag/端口<br>共享 Agent 可承载多个服务</small>
+          </div>
+          <div class="arrow"></div>
+          <div class="node accent">
+            <strong>本地业务服务</strong>
+            <small>如 127.0.0.1:8888<br>127.0.0.1:9999<br>SSH 127.0.0.1:22</small>
+          </div>
+        </div>
+      </div>
+      <div class="grid four" style="margin-top: 14px;">
+        <article class="card">
+          <h3>TCP 80</h3>
+          <p>由 Nginx 使用，负责 HTTP 访问、ACME 证书验证和必要的跳转。</p>
+        </article>
+        <article class="card">
+          <h3>TCP 443</h3>
+          <p>公网 HTTPS 主入口，可承载面板、公开发布域名和 VLESS Reality 分流。</p>
+        </article>
+        <article class="card">
+          <h3>UDP 443</h3>
+          <p>默认给 Hysteria2 使用；如果被占用，可在安装时调整 Hysteria2 端口。</p>
+        </article>
+        <article class="card">
+          <h3>127.0.0.1</h3>
+          <p>面板、Nginx HTTPS upstream、Xray 内部端口都优先只在本机监听，降低暴露面。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="tunnel">
+      <div class="section-head">
+        <div>
+          <h2>四、本地服务发布链路</h2>
+          <p>本地服务发布把“本地端口发布成公网域名”拆成 VPS 入口和后端 Agent 回连两段。后端机器不需要公网 IP，不需要路由器端口转发，只要能主动访问 VPS 即可。</p>
+        </div>
+        <span class="tag">服务发布能力</span>
+      </div>
+      <div class="diagram">
+        <div class="lane">
+          <div class="node">
+            <strong>访问者浏览器</strong>
+            <small>https://app.example.com<br>正常 HTTPS 网站访问</small>
+          </div>
+          <div class="arrow"></div>
+          <div class="node primary">
+            <strong>VPS Nginx</strong>
+            <small>为 app.example.com 签发证书<br>反代到 127.0.0.1:portal</small>
+          </div>
+          <div class="arrow"></div>
+          <div class="node accent">
+            <strong>Xray Portal → Bridge</strong>
+            <small>portal inbound 接入请求<br>reverse outbound 回到客户机器<br>客户本地服务返回响应</small>
+          </div>
+        </div>
+      </div>
+      <div class="grid two" style="margin-top: 14px;">
+        <article class="card">
+          <h3>公开 HTTPS 服务</h3>
+          <p><span class="pill blue">需要域名</span></p>
+          <p>客户先把子域名 A/AAAA 解析到海外 VPS。面板创建发布服务时会校验域名是否解析到本 VPS、是否被面板域名、普通节点域名或其他已发布服务占用。保存后自动应用 Xray portal 和 Nginx HTTPS。</p>
+          <pre>访问者
+  -> https://public-domain
+  -> VPS Nginx 127.0.0.1:portal_port
+  -> VPS Xray portal
+  -> 客户机器 Xray bridge
+  -> 127.0.0.1:local_port</pre>
+        </article>
+        <article class="card">
+          <h3>私有 TCP / SSH 服务</h3>
+          <p><span class="pill warn">无需域名</span></p>
+          <p>SSH、数据库或私有 TCP 不需要公网域名，使用 VPS 的 portal 端口和跳板方式访问。SSH 默认作为全局私有 TCP 服务加入共享 Bridge，但不会在面板或本地控制台里显示具体域名，避免客户误解。</p>
+          <pre>管理员或用户
+  -> 先 SSH 到 VPS
+  -> 再访问 127.0.0.1:portal_port
+  -> Xray reverse
+  -> 客户机器 127.0.0.1:22</pre>
+        </article>
+      </div>
+      <table style="margin-top: 14px;">
+        <thead>
+          <tr>
+            <th>对象</th>
+            <th>生成位置</th>
+            <th>唯一性规则</th>
+            <th>用途</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>UUID</td>
+            <td><code>tunnel_catalog.normalize_tunnel</code></td>
+            <td>不能和普通代理用户 UUID、其他服务发布 UUID 重复</td>
+            <td>Bridge 连接 VPS Reality 入站时的身份。</td>
+          </tr>
+          <tr>
+            <td>Email</td>
+            <td><code>tunnel:service-id</code></td>
+            <td>普通用户和服务发布 Bridge 分开命名</td>
+            <td>Xray clients 中区分普通代理流量和 reverse 流量。</td>
+          </tr>
+          <tr>
+            <td>Portal Tag</td>
+            <td><code>tunnel-portal-service-id</code></td>
+            <td>每个服务唯一</td>
+            <td>VPS 上接收 Nginx 或 TCP 转发进入的入口。</td>
+          </tr>
+          <tr>
+            <td>Reverse Tag</td>
+            <td><code>tunnel-reverse-service-id</code></td>
+            <td>每个服务唯一</td>
+            <td>把 portal 请求路由到对应后端 Bridge。</td>
+          </tr>
+          <tr>
+            <td>Portal Port</td>
+            <td>默认从 <code>18081</code> 起递增</td>
+            <td>每个服务唯一</td>
+            <td>Nginx 或私有 TCP 入口转发到 Xray portal。</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="note">
+        <p><strong>为什么不会和普通代理节点搞混：</strong>虽然普通代理节点和本地服务发布 Bridge 可以共用 Reality SNI，例如 <code>www.cloudflare.com</code>，但 Xray 入站会按 UUID/client、email、reverse tag、portal inbound 和 routing rule 区分。普通代理用户不会带 reverse 配置，服务发布 Bridge 的 client 会带 <code>reverse.tag</code>。</p>
+      </div>
+    </section>
+
+    <section id="proxy">
+      <div class="section-head">
+        <div>
+          <h2>五、普通代理节点链路</h2>
+          <p>普通代理节点仍保持 fake-ui 原本能力：一台 VPS 创建多个 VLESS 节点，每个节点可以走本机直连、HTTP 上游或 SOCKS5 上游，并进入用户订阅。</p>
+        </div>
+        <span class="tag">代理能力</span>
+      </div>
+      <div class="diagram">
+        <div class="lane">
+          <div class="node">
+            <strong>用户代理客户端</strong>
+            <small>Shadowrocket / Clash / v2rayN 等<br>导入订阅链接</small>
+          </div>
+          <div class="arrow"></div>
+          <div class="node primary">
+            <strong>VPS VLESS Reality</strong>
+            <small>统一入口、订阅、流量统计<br>SNI 可使用 www.cloudflare.com</small>
+          </div>
+          <div class="arrow"></div>
+          <div class="node accent">
+            <strong>节点出口</strong>
+            <small>本机 direct<br>HTTP 上游<br>SOCKS5 上游</small>
+          </div>
+        </div>
+      </div>
+      <div class="grid three" style="margin-top: 14px;">
+        <article class="card">
+          <h3>直连出口</h3>
+          <p>VPS 自身 IP 作为出口，适合基础节点和低成本自用场景。</p>
+        </article>
+        <article class="card">
+          <h3>HTTP 上游</h3>
+          <p>某个 VLESS 节点绑定 HTTP 代理上游，节点名称可根据上游出口国家同步。</p>
+        </article>
+        <article class="card">
+          <h3>SOCKS5 上游</h3>
+          <p>某个 VLESS 节点绑定 SOCKS5 代理上游，适合多地区出口组合。</p>
+        </article>
+      </div>
+      <div class="note warning">
+        <p><strong>兼容边界：</strong>本地服务发布不会改变普通代理节点的订阅、UUID 或出口配置；服务保存、启用、停用、删除时只刷新 tunnel catalog、Xray portal 片段和 Nginx 发布配置，并在失败时回滚 catalog。</p>
+      </div>
+    </section>
+
+    <section id="user-flow">
+      <div class="section-head">
+        <div>
+          <h2>六、用户使用逻辑</h2>
+          <p>v3.0.2 的目标是让客户“看一个页面、下一个包、跑一次安装脚本”，不用理解 Xray reverse、portal tag、Reality key 或 Nginx 配置细节。</p>
+        </div>
+        <span class="tag">客户视角</span>
+      </div>
+      <div class="flow">
+        <article class="card">
+          <h3>准备域名</h3>
+          <p>公开网站发布需要客户把子域名解析到 VPS。私有 TCP/SSH 不需要域名，面板会明确标注。</p>
+        </article>
+        <article class="card">
+          <h3>管理员新增服务</h3>
+          <p>填写公网域名、本地目标地址、目标端口、后端系统和 Bridge 模式。保存时自动校验并应用到 VPS。</p>
+        </article>
+        <article class="card">
+          <h3>下载后端客户端</h3>
+          <p>推荐下载“后端客户端”通用配对包。一台后端机器对应一个 Agent，多个服务自动合并。</p>
+        </article>
+        <article class="card">
+          <h3>客户本机安装</h3>
+          <p>客户在 macOS、Linux 或 Windows 上运行安装脚本。Agent bootstrap 后会拉取真实 <code>xray-bridge.json</code>。</p>
+        </article>
+        <article class="card">
+          <h3>本地控制台检查</h3>
+          <p>打开 <code>http://127.0.0.1:19090/</code> 查看 runtime、服务探测、日志、配置和本地代理兼容状态。</p>
+        </article>
+      </div>
+      <div class="grid two" style="margin-top: 14px;">
+        <article class="card">
+          <h3>管理员页面应该怎么理解</h3>
+          <ul class="checklist">
+            <li><strong>本地服务发布：</strong>一个公网域名或私有 TCP 入口，对应客户机器上的一个本地端口。</li>
+            <li><strong>后端客户端：</strong>一台客户机器运行的 Agent，可承载一个或多个服务发布。</li>
+            <li><strong>默认独立 Agent：</strong>每个服务一个 Bridge，适合隔离要求高的服务。</li>
+            <li><strong>高级共享 Agent：</strong>多个服务共用同一个 Bridge，适合一台机器上部署多个 Web 服务。</li>
+            <li><strong>导出总 JSON：</strong>把同一后端客户端下的全部服务合并导出，避免导入新服务时覆盖旧服务。</li>
+          </ul>
+        </article>
+        <article class="card">
+          <h3>客户本地客户端应该怎么理解</h3>
+          <ul class="checklist">
+            <li><strong>只监听本机：</strong>控制台默认只在 <code>127.0.0.1:19090</code>，不会暴露到公网。</li>
+            <li><strong>自动配对：</strong>配对包里的 token 只使用一次，成功后本地清空，面板只保存 hash。</li>
+            <li><strong>自动重启：</strong>安装脚本会写入 launchd、systemd 或 Windows 任务。</li>
+            <li><strong>代理兼容：</strong>如果本机开了 Shadowrocket、Clash、TUN，可点击“应用代理兼容”。</li>
+            <li><strong>手动导入：</strong>离线或排障时可导入总 JSON，客户端会合并服务列表。</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="agent">
+      <div class="section-head">
+        <div>
+          <h2>七、后端 Agent 配对机制</h2>
+          <p>配对机制让 release 包不包含任何客户域名、UUID、Reality 公钥或 portal 信息。真实配置只在客户下载面板生成的配对包并首次运行时获取。</p>
+        </div>
+        <span class="tag">交付安全</span>
+      </div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <h3>1. 面板生成配对包</h3>
+          <p>管理员点击“下载后端客户端”，面板创建 <code>agent_pairings</code> 记录，只保存 token hash、过期时间、Bridge ID、bundle kind、platform 和 agent_id。</p>
+        </div>
+        <div class="timeline-item">
+          <h3>2. 客户运行安装脚本</h3>
+          <p>脚本先执行 <code>bootstrap-agent.py</code>，读取 <code>agent-profile.json</code>，向面板 <code>/api/agents/bootstrap</code> 提交 token_id、pairing_token 和本机平台。</p>
+        </div>
+        <div class="timeline-item">
+          <h3>3. 面板返回真实配置</h3>
+          <p>面板校验 token 未过期、未使用且 hash 匹配，然后生成 <code>xray-bridge.json</code>、<code>bridge-dashboard.json</code> 和 <code>agent-state.json</code>。</p>
+        </div>
+        <div class="timeline-item">
+          <h3>4. token 作废并启动服务</h3>
+          <p>bootstrap 成功后面板标记 used_at，本地清空一次性 token，安装脚本继续校验 Xray 配置并注册后台服务。</p>
+        </div>
+      </div>
+      <div class="note">
+        <p><strong>为什么适合公开发布：</strong>GitHub release 中的通用客户端资产只包含示例 profile 和 bootstrap helper，不包含任何真实业务密钥；客户真实配置由自己的 fake-ui 面板现场生成。</p>
+      </div>
+    </section>
+
+    <section id="domain">
+      <div class="section-head">
+        <div>
+          <h2>八、域名、端口与模式规则</h2>
+          <p>面板把“哪些域名能用、哪些服务需要域名、哪些服务不能显示域名”做成明确规则，减少客户误操作。</p>
+        </div>
+        <span class="tag">配置规则</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>场景</th>
+            <th>是否需要域名</th>
+            <th>面板行为</th>
+            <th>客户要做什么</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>公开 Web 服务</td>
+            <td>需要</td>
+            <td>只允许已解析到 VPS 且未被占用的域名保存；保存后自动签证书并写 Nginx。</td>
+            <td>把子域名 A/AAAA 解析到 VPS，再在面板选择或输入。</td>
+          </tr>
+          <tr>
+            <td>面板域名</td>
+            <td>系统保留</td>
+            <td>不会出现在服务发布可选域名里，避免覆盖面板自身。</td>
+            <td>不用于本地服务发布。</td>
+          </tr>
+          <tr>
+            <td>普通代理节点域名</td>
+            <td>系统保留</td>
+            <td>不会出现在服务发布可选域名里，避免影响订阅节点。</td>
+            <td>继续用于普通代理节点。</td>
+          </tr>
+          <tr>
+            <td>SSH / 私有 TCP</td>
+            <td>不需要</td>
+            <td>标注“TCP 无需域名”，SSH 默认全局只加入一次，不显示具体域名。</td>
+            <td>通过 VPS 跳板和 portal 端口访问。</td>
+          </tr>
+          <tr>
+            <td>共享 Bridge</td>
+            <td>按服务类型决定</td>
+            <td>多个 Web 服务默认复用已有共享后端客户端；导出时合并为总 JSON。</td>
+            <td>一台后端机器下载一个包即可。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="delivery">
+      <div class="section-head">
+        <div>
+          <h2>九、部署与交付清单</h2>
+          <p>从 VPS 到客户本机，交付可以分成“平台部署、域名接入、服务发布、Agent 安装、验证上线”五个阶段。</p>
+        </div>
+        <span class="tag">实施路径</span>
+      </div>
+      <div class="grid two">
+        <article class="card">
+          <h3>平台方准备</h3>
+          <ul class="checklist">
+            <li>准备一台稳定 VPS，并开放 TCP 80、TCP 443、UDP 443。</li>
+            <li>执行 <code>scripts/install-fresh-vps.sh</code> 安装 fake-ui。</li>
+            <li>配置根域名、面板域名、Hysteria2 域名、VLESS 域名和证书邮箱。</li>
+            <li>确认面板、普通代理节点、订阅、Xray、Hysteria2 正常。</li>
+            <li>在“本地服务发布”页新增客户服务，保存后观察是否自动应用到 Xray / Nginx。</li>
+          </ul>
+        </article>
+        <article class="card">
+          <h3>客户侧准备</h3>
+          <ul class="checklist">
+            <li>公开 Web 服务：把业务子域名解析到平台 VPS。</li>
+            <li>本地机器运行真实服务，例如 <code>127.0.0.1:8888</code> 或 <code>127.0.0.1:9999</code>。</li>
+            <li>下载面板生成的通用后端客户端配对包。</li>
+            <li>按系统运行 macOS、Linux 或 Windows 安装脚本。</li>
+            <li>打开本地控制台检查服务探测、Bridge 状态和公网访问。</li>
+          </ul>
+        </article>
+      </div>
+      <div class="grid three" style="margin-top: 14px;">
+        <article class="card">
+          <h3>macOS</h3>
+          <p>安装脚本注册 launchd 服务，使用 <code>~/Library/LaunchAgents</code> 和 <code>~/.fake-ui</code> 目录保存运行文件。</p>
+        </article>
+        <article class="card">
+          <h3>Linux</h3>
+          <p>安装脚本注册 systemd 用户服务或系统服务，适合服务器、NAS、迷你主机。</p>
+        </article>
+        <article class="card">
+          <h3>Windows</h3>
+          <p>安装脚本使用 PowerShell 和计划任务，适合客户办公电脑或 Windows Server。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="commercial">
+      <div class="section-head">
+        <div>
+          <h2>十、招商说明与商业价值</h2>
+          <p>fake-ui 适合做成轻量自托管服务底座，也适合交付给小团队、开发者、工作室和需要把本地服务发布到海外 VPS 的客户。</p>
+        </div>
+        <span class="tag">合作价值</span>
+      </div>
+      <div class="grid three">
+        <article class="card">
+          <h3>低成本入口</h3>
+          <p>平台方只需要维护少量入口 VPS，就能复用证书、面板、订阅、用户、套餐、订单和本地服务发布能力。</p>
+        </article>
+        <article class="card">
+          <h3>高复购场景</h3>
+          <p>客户新增一个网站、后台、Webhook、演示服务或私有 SSH，就能继续在同一面板里新增映射和续费。</p>
+        </article>
+        <article class="card">
+          <h3>交付门槛低</h3>
+          <p>客户不需要理解反向代理、证书、NAT、Reality 或 Xray，只要解析域名、运行服务、下载客户端。</p>
+        </article>
+        <article class="card">
+          <h3>二开空间清晰</h3>
+          <p>远程心跳、远程命令、日志回传、Agent 自动更新接口已预留命名空间，可以继续演进为商业 Agent 平台。</p>
+        </article>
+        <article class="card">
+          <h3>安全边界明确</h3>
+          <p>本地控制台只监听 127.0.0.1；配对 token 一次性使用；GitHub release 不携带真实客户配置。</p>
+        </article>
+        <article class="card">
+          <h3>兼容原业务</h3>
+          <p>本地服务发布不影响普通代理节点、用户订阅、Hysteria2、订单系统和已有 Nginx 原生部署模式。</p>
+        </article>
+      </div>
+      <div class="note good">
+        <p><strong>推荐销售话术：</strong>“您只要把域名解析到我们的 VPS，再在自己的电脑或服务器上运行后端客户端，本地 8888、9999、22 等端口就可以变成公网可访问的 HTTPS 网站或私有远程通道。后续新增服务只在面板新增映射，同一台机器仍然只需要一个客户端。”</p>
+      </div>
+    </section>
+
+    <section id="ops">
+      <div class="section-head">
+        <div>
+          <h2>十一、验收与排障逻辑</h2>
+          <p>排障要按链路分段，不要一上来重装。先看域名解析，再看 VPS Nginx/Xray，再看后端 Agent，再看本地服务。</p>
+        </div>
+        <span class="tag">运维手册</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>现象</th>
+            <th>优先检查</th>
+            <th>判断方式</th>
+            <th>常见处理</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>公网访问 502</td>
+            <td>VPS Nginx 到 portal 是否通、Bridge 是否在线</td>
+            <td>面板点“应用到 VPS”；本地控制台看 runtime 和日志</td>
+            <td>重启后端客户端，确认总 JSON 包含所有服务。</td>
+          </tr>
+          <tr>
+            <td>新增服务后旧服务消失</td>
+            <td>是否导入了单服务 JSON</td>
+            <td>本地控制台服务列表只剩一个</td>
+            <td>使用“导出总 JSON”或配对安装包，确保同一 Agent 下服务合并。</td>
+          </tr>
+          <tr>
+            <td>域名不能选择</td>
+            <td>DNS 是否解析到 VPS、是否被保留或占用</td>
+            <td>面板域名资格提示</td>
+            <td>修正 A/AAAA 解析，避开面板域名和普通节点域名。</td>
+          </tr>
+          <tr>
+            <td>本机开代理后不通</td>
+            <td>Bridge 回连是否走了 TUN/fake-ip 路由</td>
+            <td>本地控制台“本地代理兼容”状态</td>
+            <td>点击“应用代理兼容”，再重启 Bridge。</td>
+          </tr>
+          <tr>
+            <td>SSH 看不见域名</td>
+            <td>是否为私有 TCP 服务</td>
+            <td>面板标注 TCP 无需域名</td>
+            <td>这是预期行为，通过 VPS 跳板和 portal 端口访问。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      fake-ui v3.0.2 项目结构与网络拓扑说明书 · 本文件不包含任何真实密钥、密码、订阅 token 或客户配置。
+    </footer>
+  </main>
+</body>
+</html>
